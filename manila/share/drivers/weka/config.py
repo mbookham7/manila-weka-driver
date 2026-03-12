@@ -1,0 +1,148 @@
+# Copyright 2024 Weka.IO Ltd.
+#
+# Licensed under the Apache License, Version 2.0 (the "License"); you may
+# not use this file except in compliance with the License. You may obtain
+# a copy of the License at
+#
+#      http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
+# WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
+# License for the specific language governing permissions and limitations
+# under the License.
+
+"""oslo.config options for the Weka Manila share driver."""
+
+from oslo_config import cfg
+
+weka_opts = [
+    # --- Connection ---
+    cfg.HostAddressOpt(
+        'weka_api_server',
+        help=(
+            'Hostname or IP address of the Weka cluster management endpoint. '
+            'Must be reachable from the Manila host on port weka_api_port.'
+        ),
+    ),
+    cfg.PortOpt(
+        'weka_api_port',
+        default=14000,
+        help=(
+            'TCP port for the Weka REST API. Default is 14000.'
+        ),
+    ),
+    cfg.BoolOpt(
+        'weka_ssl_verify',
+        default=True,
+        help=(
+            'Whether to verify the Weka cluster TLS certificate. '
+            'Set to False only in test/development environments.'
+        ),
+    ),
+
+    # --- Authentication ---
+    cfg.StrOpt(
+        'weka_username',
+        default='admin',
+        help='Username for Weka REST API authentication.',
+    ),
+    cfg.StrOpt(
+        'weka_password',
+        secret=True,
+        help='Password for Weka REST API authentication.',
+    ),
+    cfg.StrOpt(
+        'weka_organization',
+        default='Root',
+        help=(
+            'Weka organization name to authenticate against. '
+            'Use "Root" for the root organization. For multi-tenancy, '
+            'set this to the target organization name.'
+        ),
+    ),
+
+    # --- Filesystem group ---
+    cfg.StrOpt(
+        'weka_filesystem_group',
+        default='default',
+        help=(
+            'Name of the Weka filesystem group used for new shares. '
+            'The driver will create this group if it does not exist.'
+        ),
+    ),
+
+    # --- POSIX client ---
+    cfg.StrOpt(
+        'weka_mount_point_base',
+        default='/mnt/weka',
+        help=(
+            'Base directory on the Manila host where WekaFS filesystems '
+            'will be mounted. A subdirectory per filesystem is created '
+            'beneath this path.'
+        ),
+    ),
+    cfg.IntOpt(
+        'weka_num_cores',
+        default=1,
+        min=1,
+        max=19,
+        help=(
+            'Number of CPU cores to allocate to the WekaFS POSIX client '
+            'on the Manila host. Higher values improve throughput for '
+            'IO-intensive workloads. Default is 1.'
+        ),
+    ),
+    cfg.StrOpt(
+        'weka_net_device',
+        default=None,
+        help=(
+            'Network interface name to use for DPDK-mode WekaFS mounts '
+            '(e.g. "eth0", "ens3f0"). If not set, the kernel networking '
+            'stack is used (UDP mode).'
+        ),
+    ),
+    cfg.IntOpt(
+        'weka_posix_mount_timeout',
+        default=60,
+        min=10,
+        max=600,
+        help=(
+            'Timeout in seconds to wait for a WekaFS POSIX mount to '
+            'complete. Default is 60 seconds.'
+        ),
+    ),
+
+    # --- API behaviour ---
+    cfg.IntOpt(
+        'weka_api_timeout',
+        default=30,
+        min=5,
+        max=300,
+        help=(
+            'HTTP timeout in seconds for Weka REST API requests '
+            '(applied to both connection and read). Default is 30.'
+        ),
+    ),
+    cfg.IntOpt(
+        'weka_max_api_retries',
+        default=3,
+        min=0,
+        max=10,
+        help=(
+            'Maximum number of retries for transient Weka API errors '
+            '(HTTP 429 / 5xx). Uses exponential back-off. Default is 3.'
+        ),
+    ),
+
+    # --- Naming ---
+    cfg.StrOpt(
+        'weka_share_name_prefix',
+        default='manila_',
+        help=(
+            'Prefix prepended to Weka filesystem names created for Manila '
+            'shares. The full name is "<prefix><share-uuid>". '
+            'Default is "manila_".'
+        ),
+    ),
+]
