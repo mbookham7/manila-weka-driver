@@ -1,0 +1,385 @@
+# Copyright 2024 Weka.IO Ltd.
+#
+# Licensed under the Apache License, Version 2.0 (the "License"); you may
+# not use this file except in compliance with the License. You may obtain
+# a copy of the License at
+#
+#      http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
+# WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
+# License for the specific language governing permissions and limitations
+# under the License.
+
+"""Unit tests for manila.share.drivers.weka.client."""
+
+import unittest
+from unittest import mock
+
+import requests
+
+from manila.share.drivers.weka import client as weka_client
+from manila.share.drivers.weka import exceptions as weka_exc
+from tests.unit.share.drivers.weka import fakes
+
+
+def _make_response(status_code=200, json_data=None):
+    """Build a mock requests.Response."""
+    resp = mock.Mock(spec=requests.Response)
+    resp.status_code = status_code
+    resp.content = b'{}' if json_data is None else b'content'
+    json_data = json_data if json_data is not None else {}
+    resp.json.return_value = json_data
+    resp.text = str(json_data)
+    return resp
+
+
+def _login_response():
+    return _make_response(200, {
+        'data': {
+            'access_token': 'fake-access-token',
+            'refresh_token': 'fake-refresh-token',
+        }
+    })
+
+
+class TestWekaApiClientAuth(unittest.TestCase):
+
+    def _make_client(self):
+        c = weka_client.WekaApiClient(
+            host='weka-test', username='admin', password='secret',
+            ssl_verify=False, timeout=5, max_retries=0)
+        return c
+
+    def test_login_stores_tokens(self):
+        c = self._make_client()
+        with mock.patch.object(c._session, 'post',
+                               return_value=_login_response()):
+            c.login()
+        self.assertEqual('fake-access-token', c._access_token)
+        self.assertEqual('fake-refresh-token', c._refresh_token)
+
+    def test_login_raises_auth_error_on_401(self):
+        c = self._make_client()
+        resp = _make_response(401, {'message': 'bad credentials'})
+        with mock.patch.object(c._session, 'post', return_value=resp):
+            self.assertRaises(weka_exc.WekaAuthError, c.login)
+
+    def test_request_refreshes_token_on_401(self):
+        c = self._make_client()
+        c._access_token = 'old-token'
+        c._refresh_token = 'old-refresh'
+
+        ok_resp = _make_response(200, {'data': [fakes.fake_filesystem()]})
+
+        # First call returns 401, second returns OK after refresh.
+        auth_resp = _make_response(401, {'message': 'expired'})
+        refresh_resp = _make_response(200, {
+            'data': {'access_token': 'new-token', 'refresh_token': 'new-ref'}
+        })
+
+        with mock.patch.object(c._session, 'request',
+                               side_effect=[auth_resp, ok_resp]) as req_mock:
+            with mock.patch.object(c._session, 'post',
+                                   return_value=refresh_resp):
+                result = c._request('GET', '/fileSystems',
+                                    _retry_auth=True)
+        self.assertEqual(ok_resp, result)
+        self.assertEqual(2, req_mock.call_count)
+
+    def test_retry_on_429(self):
+        c = self._make_client()
+        c._access_token = 'tok'
+        c._max_retries = 2
+        rate_resp = _make_response(429, {'message': 'rate limited'})
+        ok_resp = _make_response(200, {'data': []})
+
+        with mock.patch.object(c._session, 'request',
+                               side_effect=[rate_resp, rate_resp, ok_resp]):
+            with mock.patch('time.sleep'):
+                result = c._request('GET', '/fileSystems')
+        self.assertEqual(ok_resp, result)
+
+    def test_retry_exhausted_raises(self):
+        c = self._make_client()
+        c._access_token = 'tok'
+        c._max_retries = 1
+        rate_resp = _make_response(429, {'message': 'rate limited'})
+
+        with mock.patch.object(c._session, 'request',
+                               return_value=rate_resp):
+            with mock.patch('time.sleep'):
+                self.assertRaises(
+                    weka_exc.WekaRateLimited,
+                    c._request, 'GET', '/fileSystems')
+
+    def test_404_not_retried(self):
+        c = self._make_client()
+        c._access_token = 'tok'
+        c._max_retries = 3
+        not_found = _make_response(404, {'message': 'not found'})
+
+        with mock.patch.object(c._session, 'request',
+                               return_value=not_found) as req_mock:
+            self.assertRaises(
+                weka_exc.WekaNotFound, c._request, 'GET', '/fileSystems/bad')
+        # Should only be called once (no retries for 4xx other than 429)
+        self.assertEqual(2, req_mock.call_count)  # initial + 1 auth retry
+
+
+class TestWekaApiClientFilesystems(unittest.TestCase):
+
+    def setUp(self):
+        self.client = weka_client.WekaApiClient(
+            host='weka-test', username='admin', password='secret',
+            ssl_verify=False, timeout=5, max_retries=0)
+        self.client._access_token = 'tok'
+
+    def _mock_get(self, path, json_data):
+        def side_effect(method, url, **kwargs):
+            self.assertEqual('GET', method)
+            self.assertIn(path, url)
+            return _make_response(200, json_data)
+        return mock.patch.object(
+            self.client._session, 'request', side_effect=side_effect)
+
+    def test_list_filesystems(self):
+        fs_list = [fakes.fake_filesystem()]
+        with self._mock_get('/fileSystems', {'data': fs_list}):
+            result = self.client.list_filesystems()
+        self.assertEqual(fs_list, result)
+
+    def test_get_filesystem(self):
+        fs = fakes.fake_filesystem()
+        resp = _make_response(200, {'data': fs})
+        with mock.patch.object(self.client._session, 'request',
+                               return_value=resp):
+            result = self.client.get_filesystem(fakes.FAKE_FS_UID)
+        self.assertEqual(fs, result)
+
+    def test_create_filesystem(self):
+        fs = fakes.fake_filesystem()
+        resp = _make_response(200, {'data': fs})
+        with mock.patch.object(self.client._session, 'request',
+                               return_value=resp):
+            result = self.client.create_filesystem(
+                name=fakes.FAKE_FS_NAME,
+                group_name=fakes.FAKE_GROUP_NAME,
+                total_capacity=10 * 1024 ** 3,
+            )
+        self.assertEqual(fs, result)
+
+    def test_update_filesystem(self):
+        fs = fakes.fake_filesystem(total_capacity=20 * 1024 ** 3)
+        resp = _make_response(200, {'data': fs})
+        with mock.patch.object(self.client._session, 'request',
+                               return_value=resp):
+            result = self.client.update_filesystem(
+                fakes.FAKE_FS_UID, total_capacity=20 * 1024 ** 3)
+        self.assertEqual(fs['totalCapacity'], result['totalCapacity'])
+
+    def test_delete_filesystem(self):
+        resp = _make_response(200, {})
+        resp.content = b''
+        with mock.patch.object(self.client._session, 'request',
+                               return_value=resp):
+            result = self.client.delete_filesystem(fakes.FAKE_FS_UID)
+        self.assertEqual({}, result)
+
+    def test_get_filesystem_by_name_found(self):
+        fs_list = [fakes.fake_filesystem()]
+        with mock.patch.object(self.client, 'list_filesystems',
+                               return_value=fs_list):
+            result = self.client.get_filesystem_by_name(fakes.FAKE_FS_NAME)
+        self.assertEqual(fakes.FAKE_FS_UID, result['uid'])
+
+    def test_get_filesystem_by_name_not_found(self):
+        with mock.patch.object(self.client, 'list_filesystems',
+                               return_value=[]):
+            result = self.client.get_filesystem_by_name('nonexistent')
+        self.assertIsNone(result)
+
+    def test_get_filesystem_mount_token(self):
+        token = fakes.fake_mount_token()
+        resp = _make_response(200, {'data': token})
+        with mock.patch.object(self.client._session, 'request',
+                               return_value=resp):
+            result = self.client.get_filesystem_mount_token(
+                fakes.FAKE_FS_UID)
+        self.assertEqual(token, result)
+
+
+class TestWekaApiClientFilesystemGroups(unittest.TestCase):
+
+    def setUp(self):
+        self.client = weka_client.WekaApiClient(
+            host='weka-test', username='admin', password='secret',
+            ssl_verify=False, timeout=5, max_retries=0)
+        self.client._access_token = 'tok'
+
+    def test_list_filesystem_groups(self):
+        groups = [fakes.fake_filesystem_group()]
+        resp = _make_response(200, {'data': groups})
+        with mock.patch.object(self.client._session, 'request',
+                               return_value=resp):
+            result = self.client.list_filesystem_groups()
+        self.assertEqual(groups, result)
+
+    def test_create_filesystem_group(self):
+        grp = fakes.fake_filesystem_group()
+        resp = _make_response(200, {'data': grp})
+        with mock.patch.object(self.client._session, 'request',
+                               return_value=resp):
+            result = self.client.create_filesystem_group(
+                fakes.FAKE_GROUP_NAME)
+        self.assertEqual(grp, result)
+
+    def test_get_filesystem_group_by_name_found(self):
+        groups = [fakes.fake_filesystem_group()]
+        with mock.patch.object(self.client, 'list_filesystem_groups',
+                               return_value=groups):
+            result = self.client.get_filesystem_group_by_name(
+                fakes.FAKE_GROUP_NAME)
+        self.assertEqual(fakes.FAKE_GROUP_UID, result['uid'])
+
+    def test_get_filesystem_group_by_name_not_found(self):
+        with mock.patch.object(self.client, 'list_filesystem_groups',
+                               return_value=[]):
+            result = self.client.get_filesystem_group_by_name('missing')
+        self.assertIsNone(result)
+
+
+class TestWekaApiClientSnapshots(unittest.TestCase):
+
+    def setUp(self):
+        self.client = weka_client.WekaApiClient(
+            host='weka-test', username='admin', password='secret',
+            ssl_verify=False, timeout=5, max_retries=0)
+        self.client._access_token = 'tok'
+
+    def test_create_snapshot(self):
+        snap = fakes.fake_snapshot()
+        resp = _make_response(200, {'data': snap})
+        with mock.patch.object(self.client._session, 'request',
+                               return_value=resp):
+            result = self.client.create_snapshot(
+                fakes.FAKE_FS_UID, fakes.FAKE_SNAP_NAME)
+        self.assertEqual(snap, result)
+
+    def test_delete_snapshot(self):
+        resp = _make_response(200, {})
+        resp.content = b''
+        with mock.patch.object(self.client._session, 'request',
+                               return_value=resp):
+            result = self.client.delete_snapshot(fakes.FAKE_SNAP_UID)
+        self.assertEqual({}, result)
+
+    def test_restore_snapshot(self):
+        resp = _make_response(200, {'data': {'status': 'ok'}})
+        with mock.patch.object(self.client._session, 'request',
+                               return_value=resp):
+            result = self.client.restore_snapshot(fakes.FAKE_SNAP_UID)
+        self.assertIsNotNone(result)
+
+    def test_get_snapshot_by_name_found(self):
+        snap = fakes.fake_snapshot()
+        with mock.patch.object(self.client, 'list_snapshots',
+                               return_value=[snap]):
+            result = self.client.get_snapshot_by_name(fakes.FAKE_SNAP_NAME)
+        self.assertEqual(fakes.FAKE_SNAP_UID, result['uid'])
+
+    def test_get_snapshot_by_name_not_found(self):
+        with mock.patch.object(self.client, 'list_snapshots',
+                               return_value=[]):
+            result = self.client.get_snapshot_by_name('missing')
+        self.assertIsNone(result)
+
+
+class TestWekaApiClientOrganizations(unittest.TestCase):
+
+    def setUp(self):
+        self.client = weka_client.WekaApiClient(
+            host='weka-test', username='admin', password='secret',
+            ssl_verify=False, timeout=5, max_retries=0)
+        self.client._access_token = 'tok'
+
+    def test_create_organization(self):
+        org = fakes.fake_organization()
+        resp = _make_response(200, {'data': org})
+        with mock.patch.object(self.client._session, 'request',
+                               return_value=resp):
+            result = self.client.create_organization('TestOrg')
+        self.assertEqual(org, result)
+
+    def test_get_organization_by_name_not_found(self):
+        with mock.patch.object(self.client, 'list_organizations',
+                               return_value=[]):
+            result = self.client.get_organization_by_name('missing')
+        self.assertIsNone(result)
+
+
+class TestWekaApiClientNFS(unittest.TestCase):
+
+    def setUp(self):
+        self.client = weka_client.WekaApiClient(
+            host='weka-test', username='admin', password='secret',
+            ssl_verify=False, timeout=5, max_retries=0)
+        self.client._access_token = 'tok'
+
+    def test_create_nfs_permission(self):
+        perm = fakes.fake_nfs_permission()
+        resp = _make_response(200, {'data': perm})
+        with mock.patch.object(self.client._session, 'request',
+                               return_value=resp):
+            result = self.client.create_nfs_permission(
+                client_group=fakes.FAKE_CG_UID,
+                fs_uid=fakes.FAKE_FS_UID,
+                path='/',
+                access_type='RW',
+            )
+        self.assertEqual(perm, result)
+
+    def test_delete_nfs_permission(self):
+        resp = _make_response(200, {})
+        resp.content = b''
+        with mock.patch.object(self.client._session, 'request',
+                               return_value=resp):
+            self.client.delete_nfs_permission(fakes.FAKE_PERM_UID)
+
+    def test_create_client_group(self):
+        cg = fakes.fake_client_group()
+        resp = _make_response(200, {'data': cg})
+        with mock.patch.object(self.client._session, 'request',
+                               return_value=resp):
+            result = self.client.create_client_group('test-group')
+        self.assertEqual(cg, result)
+
+
+class TestWekaApiClientCapacity(unittest.TestCase):
+
+    def setUp(self):
+        self.client = weka_client.WekaApiClient(
+            host='weka-test', username='admin', password='secret',
+            ssl_verify=False, timeout=5, max_retries=0)
+        self.client._access_token = 'tok'
+
+    def test_get_capacity(self):
+        cap = fakes.fake_capacity()
+        resp = _make_response(200, {'data': cap})
+        with mock.patch.object(self.client._session, 'request',
+                               return_value=resp):
+            result = self.client.get_capacity()
+        self.assertEqual(cap, result)
+
+    def test_get_cluster_status(self):
+        status = fakes.fake_cluster_status()
+        resp = _make_response(200, status)
+        with mock.patch.object(self.client._session, 'request',
+                               return_value=resp):
+            result = self.client.get_cluster_status()
+        self.assertEqual(status, result)
+
+
+if __name__ == '__main__':
+    unittest.main()
