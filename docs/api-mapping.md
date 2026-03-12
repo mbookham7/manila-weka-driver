@@ -1,0 +1,144 @@
+# Manila Operation → Weka API Endpoint Mapping
+
+This table shows which Weka REST API v2 endpoints are called for each
+Manila driver operation.
+
+## Share Lifecycle
+
+| Manila Operation | Weka API Endpoint | Method | Notes |
+|-----------------|-------------------|--------|-------|
+| `create_share` | `/fileSystems` | POST | Creates new filesystem |
+| `create_share` | `/fileSystemGroups` | GET | Verifies group exists |
+| `delete_share` | `/fileSystems` | GET | Name lookup |
+| `delete_share` | `/nfsPermissions` | GET | Find permissions to remove |
+| `delete_share` | `/nfsPermissions/{uid}` | DELETE | Remove each permission |
+| `delete_share` | `/fileSystems/{uid}` | DELETE | Delete filesystem |
+| `extend_share` | `/fileSystems/{uid}` | PUT | Update `totalCapacity` |
+| `shrink_share` | `/fileSystems/{uid}` | GET | Check used capacity |
+| `shrink_share` | `/fileSystems/{uid}` | PUT | Update `totalCapacity` |
+| `ensure_share` | `/fileSystems` | GET | Verify filesystem exists |
+| `manage_existing` | `/fileSystems` | GET | Find by name |
+| `create_share_from_snapshot` | `/snapshots/{uid}` | PUT | Make writable |
+| `create_share_from_snapshot` | `/fileSystems` | POST | New filesystem |
+
+## Snapshot Operations
+
+| Manila Operation | Weka API Endpoint | Method | Notes |
+|-----------------|-------------------|--------|-------|
+| `create_snapshot` | `/snapshots` | POST | `isWritable=false` |
+| `delete_snapshot` | `/snapshots` | GET | Name lookup |
+| `delete_snapshot` | `/snapshots/{uid}` | DELETE | |
+| `revert_to_snapshot` | `/snapshots` | GET | Name lookup |
+| `revert_to_snapshot` | `/snapshots/{uid}/restore` | POST | In-place restore |
+
+## Access Control
+
+| Manila Operation | Weka API Endpoint | Method | Notes |
+|-----------------|-------------------|--------|-------|
+| `update_access` (NFS add) | `/clientGroups` | POST | One group per rule |
+| `update_access` (NFS add) | `/clientGroups/{uid}/rules` | POST | IP rule |
+| `update_access` (NFS add) | `/nfsPermissions` | POST | RW or RO |
+| `update_access` (NFS del) | `/nfsPermissions` | GET | Find by FS+rule ID |
+| `update_access` (NFS del) | `/nfsPermissions/{uid}` | DELETE | |
+
+## Driver Setup
+
+| Operation | Weka API Endpoint | Method | Notes |
+|-----------|-------------------|--------|-------|
+| `do_setup` | `/login` | POST | Obtain access/refresh tokens |
+| `do_setup` | `/status` | GET | Verify connectivity + version |
+| `do_setup` | `/fileSystemGroups` | GET | Check group exists |
+| `do_setup` | `/fileSystemGroups` | POST | Create if missing |
+| `check_for_setup_error` | `/status` | GET | Verify auth |
+| `login refresh` | `/login/refresh` | POST | Refresh access token |
+
+## Statistics
+
+| Manila Operation | Weka API Endpoint | Method | Notes |
+|-----------------|-------------------|--------|-------|
+| `_update_share_stats` | `/capacity` | GET | Cluster capacity |
+
+## Authentication Token Flow
+
+```
+Manila host                    Weka Cluster
+    │                               │
+    │── POST /login ───────────────►│
+    │   {username, password, org}   │
+    │◄── {access_token,             │
+    │     refresh_token} ──────────►│
+    │                               │
+    │  [access_token valid 5 min]   │
+    │                               │
+    │── GET /fileSystems ──────────►│
+    │   Authorization: Bearer <tok> │
+    │◄── 200 {filesystems} ────────►│
+    │                               │
+    │  [token expires → 401]        │
+    │                               │
+    │── POST /login/refresh ───────►│
+    │   {refresh_token}             │
+    │◄── {new access_token} ───────►│
+    │                               │
+    │  [refresh_token valid 1 year] │
+```
+
+## Complete Weka API v2 Endpoint Coverage
+
+The `WekaApiClient` implements the following endpoints.  Those marked
+with (D) are driver-critical; (S) are stubs included for SDK completeness.
+
+### Filesystem
+- GET/POST `/fileSystems` (D)
+- GET/PUT/DELETE `/fileSystems/{uid}` (D)
+- POST `/fileSystems/{uid}/mountTokens` (D)
+- POST/DELETE `/fileSystems/{uid}/objectStoreBuckets` (S)
+- GET/POST/PATCH/DELETE `/fileSystems/{uid}/quota/{inode_id}` (D)
+- GET/POST/DELETE `/fileSystems/{uid}/defaultQuota` (S)
+
+### Filesystem Groups
+- GET/POST `/fileSystemGroups` (D)
+- GET/PUT/DELETE `/fileSystemGroups/{uid}` (D)
+
+### Organizations
+- GET/POST `/organizations` (S)
+- GET/PUT/DELETE `/organizations/{uid}` (S)
+- PUT `/organizations/{uid}/limits` (S)
+- PUT `/organizations/{uid}/security` (S)
+
+### NFS
+- GET/POST `/interfaceGroups` (S)
+- DELETE `/interfaceGroups/{uid}` (S)
+- GET/POST `/nfsPermissions` (D)
+- DELETE `/nfsPermissions/{uid}` (D)
+- GET/POST `/clientGroups` (D)
+- POST `/clientGroups/{uid}/rules` (D)
+- DELETE `/clientGroups/{uid}` (S)
+
+### Snapshots
+- GET/POST `/snapshots` (D)
+- GET/PUT/DELETE `/snapshots/{uid}` (D)
+- POST `/snapshots/{uid}/restore` (D)
+
+### Cluster
+- GET `/status` (D)
+- GET `/cluster` (S)
+- GET `/capacity` (D)
+
+### Users
+- GET/POST `/users` (S)
+- DELETE `/users/{uid}` (S)
+
+### KMS / Security
+- GET/POST `/kms` (S)
+- GET `/ldap` (S)
+- GET `/security` (S)
+- GET `/security/tls` (S)
+
+### Object Storage
+- GET/POST `/objectStoreBuckets` (S)
+- DELETE `/objectStoreBuckets/{uid}` (S)
+
+### S3
+- GET/POST `/s3/buckets` (S)
+- DELETE `/s3/buckets/{name}` (S)
