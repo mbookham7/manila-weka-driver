@@ -66,6 +66,14 @@ access protocols:
 - Network connectivity from the Manila host to the Weka cluster on
   TCP port **14000** (REST API) and the WekaFS data network.
 
+## Documentation
+
+| Document | Description |
+|----------|-------------|
+| [Step-by-Step Deployment Guide](docs/deployment.md) | Full novice-friendly walkthrough from prerequisites to first mounted share |
+| [Architecture Overview](#architecture) | How the driver fits into OpenStack Manila |
+| [Configuration Reference](#configuration) | All `weka_*` options explained |
+
 ## Installation
 
 ```bash
