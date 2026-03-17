@@ -14,8 +14,6 @@
 
 """Unit tests for manila.share.drivers.weka.posix."""
 
-import os
-import stat
 import unittest
 from unittest import mock
 

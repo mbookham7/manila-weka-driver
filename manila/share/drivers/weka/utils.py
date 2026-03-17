@@ -93,7 +93,7 @@ def sanitize_log_params(params, secret_keys=('password', 'token', 'secret')):
 
 
 def build_export_location(backends, fs_name, is_admin_only=False,
-                           preferred=True, metadata=None):
+                          preferred=True, metadata=None):
     """Build a Manila export location dict for a WekaFS share.
 
     :param backends: Comma-separated list of Weka backend host addresses.

@@ -19,7 +19,6 @@ from unittest import mock
 
 from oslo_config import cfg
 
-from manila.common import constants
 from manila import exception
 from manila.share.drivers.weka import driver as weka_driver
 from manila.share.drivers.weka import exceptions as weka_exc
@@ -180,6 +179,47 @@ class TestWekaShareDriverCreateShare(unittest.TestCase):
 
         meta = result[0].get('metadata', {})
         self.assertEqual(fakes.FAKE_FS_UID, meta.get('weka_fs_uid'))
+
+
+class TestWekaShareDriverCreateFromSnapshot(unittest.TestCase):
+
+    def _make_driver(self):
+        drv = weka_driver.WekaShareDriver.__new__(weka_driver.WekaShareDriver)
+        drv.configuration = _make_config()
+        drv._client = mock.Mock()
+        drv._fs_group_uid = fakes.FAKE_GROUP_UID
+        return drv
+
+    def test_create_share_from_snapshot(self):
+        drv = self._make_driver()
+        snap = fakes.fake_snapshot()
+        drv._client.get_filesystem_by_name.return_value = None
+        drv._client.get_snapshot_by_name.return_value = snap
+        drv._client.create_filesystem.return_value = fakes.fake_filesystem()
+
+        share = fakes.fake_share(proto='WEKAFS', size=10)
+        snap_model = fakes.fake_snapshot_model()
+
+        result = drv.create_share_from_snapshot(
+            context=None, share=share, snapshot=snap_model)
+
+        drv._client.update_snapshot.assert_called_once_with(
+            fakes.FAKE_SNAP_UID, is_writable=True)
+        drv._client.create_filesystem.assert_called_once()
+        self.assertEqual(1, len(result))
+
+    def test_create_share_from_snapshot_not_found(self):
+        drv = self._make_driver()
+        drv._client.get_snapshot_by_name.return_value = None
+
+        share = fakes.fake_share(proto='WEKAFS')
+        snap_model = fakes.fake_snapshot_model()
+
+        self.assertRaises(
+            exception.SnapshotNotFound,
+            drv.create_share_from_snapshot,
+            None, share, snap_model,
+        )
 
 
 class TestWekaShareDriverDeleteShare(unittest.TestCase):

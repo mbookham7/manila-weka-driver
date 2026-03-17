@@ -20,6 +20,7 @@ import uuid as _uuid_mod
 # Helper generators
 # ---------------------------------------------------------------------------
 
+
 def _uid():
     return str(_uuid_mod.uuid4())
 
