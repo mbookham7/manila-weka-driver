@@ -1,9 +1,10 @@
 # Step-by-Step Deployment Guide
 
-This guide walks you through installing and configuring the Manila Weka
-driver from scratch.  It assumes you have a running OpenStack environment
-with Manila already installed, and a Weka storage cluster on your network.
-No prior experience with Manila drivers is required.
+This guide walks you through setting up the Manila host, then installing
+and configuring the Manila Weka driver from scratch.  It assumes you have
+a running OpenStack environment (controller, compute, and networking
+already working) and a Weka storage cluster on your network.
+No prior experience with Manila or Manila drivers is required.
 
 ---
 
@@ -13,10 +14,12 @@ No prior experience with Manila drivers is required.
 
 | Component | Minimum version | Where to check |
 |-----------|----------------|----------------|
-| OpenStack Manila | 2023.1 (Antelope) | `manila --version` |
+| OpenStack (controller up) | 2023.1 (Antelope) | `openstack token issue` |
 | Weka cluster | 4.2 | Weka GUI → About |
 | Manila host OS | RHEL 8+ / Ubuntu 20.04+ | `cat /etc/os-release` |
 | Python | 3.9+ | `python3 --version` |
+| MariaDB / MySQL | 10.4+ | `mysql --version` |
+| RabbitMQ | 3.8+ | `rabbitmqctl status` |
 | Network access | Manila host → Weka cluster port 14000 | `curl` test below |
 
 ### What "Manila host" means
@@ -34,6 +37,209 @@ openstack share service list
 
 Look for a line containing `manila-share` — the `Host` column shows the
 hostname.
+
+---
+
+## Step 0 — Set Up the Manila Host
+
+This step installs OpenStack Manila on a dedicated Linux server and
+registers it with your existing OpenStack environment.  Skip this step
+if Manila is already running in your environment.
+
+### 0a — Choose a server
+
+The Manila host needs:
+
+- 4 vCPUs / 8 GB RAM minimum (16 GB recommended for production)
+- 50 GB root disk
+- Network access to your OpenStack controller (Keystone, RabbitMQ,
+  MariaDB) and to the Weka cluster (port 14000)
+- The same OS as your other OpenStack nodes (consistency matters for
+  package versions)
+
+### 0b — Install OS packages
+
+**RHEL 8 / Rocky Linux 8 / AlmaLinux 8:**
+
+```bash
+# Enable the RDO (Red Hat OpenStack Distribution) repository
+sudo dnf install -y centos-release-openstack-antelope
+sudo dnf update -y
+
+# Install Manila packages
+sudo dnf install -y openstack-manila \
+                    openstack-manila-share \
+                    python3-manilaclient \
+                    python3-pymysql
+```
+
+**Ubuntu 22.04:**
+
+```bash
+# Enable the Ubuntu Cloud Archive for OpenStack Antelope
+sudo add-apt-repository cloud-archive:antelope
+sudo apt-get update
+
+# Install Manila packages
+sudo apt-get install -y python3-manila \
+                        manila-api \
+                        manila-scheduler \
+                        manila-share \
+                        python3-manilaclient \
+                        python3-pymysql
+```
+
+### 0c — Create the Manila database
+
+Run these commands on your **database host** (or on the Manila host if
+MariaDB is local):
+
+```bash
+sudo mysql -u root -p <<'SQL'
+CREATE DATABASE manila CHARACTER SET utf8mb3 COLLATE utf8mb3_general_ci;
+GRANT ALL PRIVILEGES ON manila.* TO 'manila'@'localhost'
+  IDENTIFIED BY 'ManilaDbPass123!';
+GRANT ALL PRIVILEGES ON manila.* TO 'manila'@'%'
+  IDENTIFIED BY 'ManilaDbPass123!';
+FLUSH PRIVILEGES;
+SQL
+```
+
+> **Choose a strong password** and replace `ManilaDbPass123!` everywhere
+> below.
+
+### 0d — Register Manila with Keystone
+
+Run these commands on any host where the OpenStack admin credentials are
+loaded (usually the controller):
+
+```bash
+# Source admin credentials
+source /etc/openstack/admin-openrc.sh   # adjust path to your env file
+
+# Create the manila service user
+openstack user create --domain default \
+  --password 'ManilaServicePass123!' manila
+
+# Assign the admin role
+openstack role add --project service --user manila admin
+
+# Register the shared-filesystem service
+openstack service create --name manila \
+  --description "OpenStack Shared Filesystems" \
+  "share"
+
+openstack service create --name manilav2 \
+  --description "OpenStack Shared Filesystems v2" \
+  "sharev2"
+
+# Create the API endpoints (replace 10.0.0.10 with your Manila host IP)
+for iface in public internal admin; do
+  openstack endpoint create --region RegionOne \
+    share $iface http://10.0.0.10:8786/v1/%\(tenant_id\)s
+
+  openstack endpoint create --region RegionOne \
+    sharev2 $iface http://10.0.0.10:8786/v2
+done
+```
+
+### 0e — Configure manila.conf
+
+The Manila configuration file lives at `/etc/manila/manila.conf`.  Back
+it up, then open it for editing:
+
+```bash
+sudo cp /etc/manila/manila.conf /etc/manila/manila.conf.orig
+sudo nano /etc/manila/manila.conf
+```
+
+Replace the contents of the `[DEFAULT]` section with the following,
+substituting the placeholder values with your own:
+
+```ini
+[DEFAULT]
+# Message queue (RabbitMQ)
+transport_url = rabbit://openstack:RabbitPass123!@10.0.0.5:5672/
+
+# Keystone auth for service-to-service calls
+auth_strategy = keystone
+my_ip = 10.0.0.10          # this Manila host's IP
+
+# Logging
+log_file = /var/log/manila/manila.log
+
+[database]
+connection = mysql+pymysql://manila:ManilaDbPass123!@10.0.0.5/manila
+
+[keystone_authtoken]
+www_authenticate_uri  = http://10.0.0.5:5000
+auth_url              = http://10.0.0.5:5000
+memcached_servers     = 10.0.0.5:11211
+auth_type             = password
+project_domain_name   = Default
+user_domain_name      = Default
+project_name          = service
+username              = manila
+password              = ManilaServicePass123!
+
+[oslo_concurrency]
+lock_path = /var/lib/manila/tmp
+```
+
+> Replace `10.0.0.5` with your controller/RabbitMQ/Keystone host IP and
+> `10.0.0.10` with this Manila host's IP.
+
+### 0f — Populate the database
+
+```bash
+sudo manila-manage db sync
+```
+
+You should see migration output ending with no errors.
+
+### 0g — Start and enable Manila services
+
+**RHEL / Rocky / AlmaLinux:**
+
+```bash
+sudo systemctl enable --now openstack-manila-api \
+                              openstack-manila-scheduler \
+                              openstack-manila-share
+```
+
+**Ubuntu:**
+
+```bash
+sudo systemctl enable --now manila-api \
+                              manila-scheduler \
+                              manila-share
+```
+
+### 0h — Verify Manila is running
+
+From any host with the OpenStack client configured:
+
+```bash
+source /etc/openstack/admin-openrc.sh
+openstack share service list
+```
+
+Expected output — all services should show `State: up`:
+
+```
++----+------------------+----------+---------+-------+----------------------------+
+| Id | Binary           | Host     | Zone    | State | Status                     |
++----+------------------+----------+---------+-------+----------------------------+
+|  1 | manila-scheduler | manila   | nova    | up    | enabled                    |
+|  2 | manila-share     | manila@weka | nova | up    | enabled                    |
++----+------------------+----------+---------+-------+----------------------------+
+```
+
+If any service shows `State: down`, check its log:
+
+```bash
+sudo journalctl -u openstack-manila-share -n 50
+```
 
 ---
 
@@ -557,6 +763,10 @@ df -h | grep mnt
 
 Use this checklist to confirm every step completed successfully:
 
+- [ ] Manila packages installed (`manila-manage db sync` completed)
+- [ ] Manila service user exists in Keystone (`openstack user list | grep manila`)
+- [ ] Manila API endpoints registered (`openstack endpoint list | grep share`)
+- [ ] All Manila services show `State: up` in `openstack share service list`
 - [ ] `curl -k https://<weka-ip>:14000/api/v2/status` returns JSON
 - [ ] `lsmod | grep wekafs` shows the module is loaded
 - [ ] `python3 -c "from manila.share.drivers.weka.driver import WekaShareDriver"` prints nothing (no error)
