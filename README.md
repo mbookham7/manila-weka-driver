@@ -83,7 +83,7 @@ pip install manila-weka-driver
 Or directly from source:
 
 ```bash
-git clone https://github.com/weka/manila-weka-driver
+git clone https://github.com/mbookham7/manila-weka-driver
 cd manila-weka-driver
 pip install -e .
 ```
@@ -92,19 +92,24 @@ pip install -e .
 
 ### 1. Install the WekaFS kernel module
 
-```bash
-# RHEL / Rocky / AlmaLinux
-dnf install wekafs
+The WekaFS client package must be downloaded from your Weka cluster to
+ensure the client version matches the cluster exactly:
 
-# Ubuntu / Debian
-apt-get install wekafs
+```bash
+# Replace with your Weka cluster IP and version
+curl -k -o weka-client.tar https://<weka-ip>:14000/dist/v1/install/<weka-version>
+tar xf weka-client.tar
+sudo ./install.sh
 
 # Load the module
-modprobe wekafs
+sudo modprobe wekafs
 
 # Persist across reboots
-echo "wekafs" >> /etc/modules-load.d/wekafs.conf
+echo "wekafs" | sudo tee /etc/modules-load.d/wekafs.conf
 ```
+
+See the [Step-by-Step Deployment Guide](docs/deployment.md#step-2--install-the-wekafs-kernel-module)
+for full details including how to find your Weka version.
 
 ### 2. manila.conf example
 
@@ -126,7 +131,7 @@ weka_api_port        = 14000
 weka_ssl_verify      = true
 
 # --- Authentication ---
-weka_username        = admin
+weka_username        = manila-driver
 weka_password        = your-password-here
 weka_organization    = Root
 
@@ -196,8 +201,9 @@ can have independent storage quotas and separate admin credentials.
 To create a Manila share type targeting a specific Weka organization:
 
 ```bash
-manila type-create weka-org-a false
-manila type-key weka-org-a set weka_organization=org-a
+openstack share type create weka-org-a false \
+  --extra-specs driver_handles_share_servers=false \
+                weka_organization=org-a
 ```
 
 Then configure a separate Manila backend stanza for each organization

@@ -17,7 +17,7 @@ share_driver = manila.share.drivers.weka.driver:WekaShareDriver
 driver_handles_share_servers = false
 
 weka_api_server   = weka-cluster.example.com
-weka_username     = admin
+weka_username     = manila-driver
 weka_password     = your-password
 ```
 
@@ -162,10 +162,12 @@ Requirements:
    update-ca-trust
    ```
 
-2. **Dedicated API user**: Create a read-write API user in Weka instead
+2. **Dedicated API user**: Create a dedicated API user in Weka instead
    of using the admin account:
    ```bash
-   weka user add manila-driver --role S3FullAdmin
+   weka user add manila-driver \
+     --password 'StrongPasswordHere!' \
+     --role OrgAdmin
    ```
 
 3. **Credential encryption**: Use `oslo.messaging` credential encryption
