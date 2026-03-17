@@ -40,6 +40,48 @@ hostname.
 
 ---
 
+## Environment Variables
+
+**Set these once before running any command in this guide.**  Every
+command below uses these variables so you never have to edit a placeholder
+manually.
+
+Open a terminal on the Manila host (or your workstation for the
+controller-side steps) and paste the block below, filling in your own
+values:
+
+```bash
+# ---------------------------------------------------------------
+# Network addresses
+# ---------------------------------------------------------------
+export CONTROLLER_IP=10.0.0.5        # OpenStack controller / RabbitMQ / Keystone / MariaDB
+export MANILA_HOST_IP=10.0.0.10      # This Manila host's IP address
+export WEKA_IP=10.0.1.50             # Weka cluster management IP or hostname
+export WEKA_VERSION=4.2.0            # Weka cluster version (from Weka GUI → About)
+export OS_REGION=RegionOne           # OpenStack region name
+
+# ---------------------------------------------------------------
+# Passwords  — choose strong values, do not reuse passwords
+# ---------------------------------------------------------------
+export MANILA_DB_PASS='Ch@ngeMe_DB1!'        # Manila MariaDB password
+export MANILA_SVC_PASS='Ch@ngeMe_Svc1!'      # Manila Keystone service user password
+export RABBIT_PASS='Ch@ngeMe_MQ1!'           # RabbitMQ 'openstack' user password
+export WEKA_ADMIN_PASS='<your-weka-admin-password>'   # Existing Weka admin password
+export WEKA_MANILA_PASS='Ch@ngeMe_Weka1!'    # New password for the manila-driver Weka user
+
+# ---------------------------------------------------------------
+# Share / test settings
+# ---------------------------------------------------------------
+export CLIENT_IP=192.168.10.5        # IP of the client that will mount shares
+export TEST_SHARE_NAME=my-first-share
+```
+
+> **Tip:** Save this block to a file (e.g. `~/manila-weka-env.sh`) and
+> `source ~/manila-weka-env.sh` at the start of each session to restore
+> the variables.
+
+---
+
 ## Step 0 — Set Up the Manila Host
 
 This step installs OpenStack Manila on a dedicated Linux server and
@@ -95,18 +137,15 @@ Run these commands on your **database host** (or on the Manila host if
 MariaDB is local):
 
 ```bash
-sudo mysql -u root -p <<'SQL'
+sudo mysql -u root -p -e "
 CREATE DATABASE manila CHARACTER SET utf8mb3 COLLATE utf8mb3_general_ci;
 GRANT ALL PRIVILEGES ON manila.* TO 'manila'@'localhost'
-  IDENTIFIED BY 'ManilaDbPass123!';
+  IDENTIFIED BY '${MANILA_DB_PASS}';
 GRANT ALL PRIVILEGES ON manila.* TO 'manila'@'%'
-  IDENTIFIED BY 'ManilaDbPass123!';
+  IDENTIFIED BY '${MANILA_DB_PASS}';
 FLUSH PRIVILEGES;
-SQL
+"
 ```
-
-> **Choose a strong password** and replace `ManilaDbPass123!` everywhere
-> below.
 
 ### 0d — Register Manila with Keystone
 
@@ -119,7 +158,7 @@ source /etc/openstack/admin-openrc.sh   # adjust path to your env file
 
 # Create the manila service user
 openstack user create --domain default \
-  --password 'ManilaServicePass123!' manila
+  --password "${MANILA_SVC_PASS}" manila
 
 # Assign the admin role
 openstack role add --project service --user manila admin
@@ -133,61 +172,54 @@ openstack service create --name manilav2 \
   --description "OpenStack Shared Filesystems v2" \
   "sharev2"
 
-# Create the API endpoints (replace 10.0.0.10 with your Manila host IP)
+# Create the API endpoints
 for iface in public internal admin; do
-  openstack endpoint create --region RegionOne \
-    share $iface http://10.0.0.10:8786/v1/%\(tenant_id\)s
+  openstack endpoint create --region "${OS_REGION}" \
+    share $iface "http://${MANILA_HOST_IP}:8786/v1/%(tenant_id)s"
 
-  openstack endpoint create --region RegionOne \
-    sharev2 $iface http://10.0.0.10:8786/v2
+  openstack endpoint create --region "${OS_REGION}" \
+    sharev2 $iface "http://${MANILA_HOST_IP}:8786/v2"
 done
 ```
 
 ### 0e — Configure manila.conf
 
 The Manila configuration file lives at `/etc/manila/manila.conf`.  Back
-it up, then open it for editing:
+it up, then write the base configuration:
 
 ```bash
 sudo cp /etc/manila/manila.conf /etc/manila/manila.conf.orig
-sudo nano /etc/manila/manila.conf
-```
 
-Replace the contents of the `[DEFAULT]` section with the following,
-substituting the placeholder values with your own:
-
-```ini
+sudo tee /etc/manila/manila.conf > /dev/null <<EOF
 [DEFAULT]
 # Message queue (RabbitMQ)
-transport_url = rabbit://openstack:RabbitPass123!@10.0.0.5:5672/
+transport_url = rabbit://openstack:${RABBIT_PASS}@${CONTROLLER_IP}:5672/
 
 # Keystone auth for service-to-service calls
 auth_strategy = keystone
-my_ip = 10.0.0.10          # this Manila host's IP
+my_ip = ${MANILA_HOST_IP}
 
 # Logging
 log_file = /var/log/manila/manila.log
 
 [database]
-connection = mysql+pymysql://manila:ManilaDbPass123!@10.0.0.5/manila
+connection = mysql+pymysql://manila:${MANILA_DB_PASS}@${CONTROLLER_IP}/manila
 
 [keystone_authtoken]
-www_authenticate_uri  = http://10.0.0.5:5000
-auth_url              = http://10.0.0.5:5000
-memcached_servers     = 10.0.0.5:11211
+www_authenticate_uri  = http://${CONTROLLER_IP}:5000
+auth_url              = http://${CONTROLLER_IP}:5000
+memcached_servers     = ${CONTROLLER_IP}:11211
 auth_type             = password
 project_domain_name   = Default
 user_domain_name      = Default
 project_name          = service
 username              = manila
-password              = ManilaServicePass123!
+password              = ${MANILA_SVC_PASS}
 
 [oslo_concurrency]
 lock_path = /var/lib/manila/tmp
+EOF
 ```
-
-> Replace `10.0.0.5` with your controller/RabbitMQ/Keystone host IP and
-> `10.0.0.10` with this Manila host's IP.
 
 ### 0f — Populate the database
 
@@ -251,8 +283,7 @@ cluster API.
 Log in to the Manila host and run:
 
 ```bash
-# Replace 10.0.1.50 with your Weka cluster IP or hostname
-curl -k https://10.0.1.50:14000/api/v2/status
+curl -k https://${WEKA_IP}:14000/api/v2/status
 ```
 
 **Expected output** — you should see JSON similar to:
@@ -284,9 +315,8 @@ The client package is downloaded from your Weka cluster itself.  This
 ensures the client version matches your cluster exactly.
 
 ```bash
-# Replace 10.0.1.50 with your Weka cluster IP
-# Replace 4.2.0 with your actual Weka version (from Step 1 output)
-curl -o weka-client.tar https://10.0.1.50:14000/dist/v1/install/4.2.0
+curl -k -o weka-client.tar \
+  https://${WEKA_IP}:14000/dist/v1/install/${WEKA_VERSION}
 tar xf weka-client.tar
 sudo ./install.sh
 ```
@@ -344,15 +374,14 @@ accidentally exposed.
 ### 3a — Log in to the Weka cluster CLI
 
 ```bash
-# Replace with your Weka management host
-weka user login admin <your-admin-password> --hostname 10.0.1.50
+weka user login admin "${WEKA_ADMIN_PASS}" --hostname "${WEKA_IP}"
 ```
 
 ### 3b — Create the Manila user
 
 ```bash
 weka user add manila-driver \
-  --password 'Ch00seAStr0ngP@ssword!' \
+  --password "${WEKA_MANILA_PASS}" \
   --role OrgAdmin
 ```
 
@@ -362,9 +391,9 @@ weka user add manila-driver \
 ### 3c — Test the new credentials
 
 ```bash
-curl -k -X POST https://10.0.1.50:14000/api/v2/login \
+curl -k -X POST https://${WEKA_IP}:14000/api/v2/login \
   -H 'Content-Type: application/json' \
-  -d '{"username":"manila-driver","password":"Ch00seAStr0ngP@ssword!","org":"Root"}'
+  -d "{\"username\":\"manila-driver\",\"password\":\"${WEKA_MANILA_PASS}\",\"org\":\"Root\"}"
 ```
 
 You should receive a response containing `"access_token"`.  If you see
@@ -441,33 +470,27 @@ location is `/etc/manila/manila.conf`.
 ### 6a — Back up the original
 
 ```bash
-sudo cp /etc/manila/manila.conf /etc/manila/manila.conf.backup-$(date +%Y%m%d)
+sudo cp /etc/manila/manila.conf \
+  /etc/manila/manila.conf.backup-$(date +%Y%m%d)
 ```
 
 ### 6b — Add the Weka backend stanza
 
-Open the file in your editor:
+First, add `weka` to the `enabled_share_backends` list in `[DEFAULT]`:
 
 ```bash
-sudo nano /etc/manila/manila.conf
-# or: sudo vim /etc/manila/manila.conf
+sudo sed -i '/^\[DEFAULT\]/a enabled_share_backends = weka' \
+  /etc/manila/manila.conf
 ```
 
-Find the `[DEFAULT]` section (it will already exist) and add `weka` to
-the `enabled_share_backends` list:
-
-```ini
-[DEFAULT]
-# If this line already exists, add ,weka to it. If not, add the whole line.
-enabled_share_backends = weka
-```
-
-> **If you already have other backends**, append weka with a comma:
+> **If you already have other backends**, edit the line manually instead:
 > `enabled_share_backends = ceph,nfs,weka`
 
-Now scroll to the **end** of the file and add a new section:
+Then append the Weka backend section to the end of the file:
 
-```ini
+```bash
+sudo tee -a /etc/manila/manila.conf > /dev/null <<EOF
+
 [weka]
 # Driver class — do not change this line
 share_driver = manila.share.drivers.weka.driver:WekaShareDriver
@@ -483,34 +506,25 @@ snapshot_support = true
 create_share_from_snapshot_support = true
 revert_to_snapshot_support = true
 
-# ---------------------------------------------------------------
-# Connection — replace with your actual values
-# ---------------------------------------------------------------
-weka_api_server = 10.0.1.50          # your Weka cluster IP or hostname
+# Connection
+weka_api_server = ${WEKA_IP}
 weka_api_port   = 14000
 weka_ssl_verify = true
 
-# ---------------------------------------------------------------
-# Authentication — replace with the credentials from Step 3
-# ---------------------------------------------------------------
+# Authentication
 weka_username     = manila-driver
-weka_password     = Ch00seAStr0ngP@ssword!
+weka_password     = ${WEKA_MANILA_PASS}
 weka_organization = Root
 
-# ---------------------------------------------------------------
 # Filesystem settings
-# ---------------------------------------------------------------
-weka_filesystem_group  = default     # created automatically if missing
+weka_filesystem_group  = default
 weka_share_name_prefix = manila_
 
-# ---------------------------------------------------------------
 # POSIX client on this Manila host
-# ---------------------------------------------------------------
-weka_mount_point_base = /mnt/weka    # must match the directory from Step 5
+weka_mount_point_base = /mnt/weka
 weka_num_cores        = 1
+EOF
 ```
-
-Save and close the file.
 
 ### 6c — Validate the config file syntax
 
@@ -636,7 +650,7 @@ Now test the whole stack end-to-end by creating a share.
 
 ```bash
 openstack share create \
-  --name my-first-share \
+  --name "${TEST_SHARE_NAME}" \
   --share-type weka-default \
   --size 10 \
   WEKAFS
@@ -645,7 +659,7 @@ openstack share create \
 ### 11b — Wait for it to become available
 
 ```bash
-openstack share show my-first-share
+openstack share show "${TEST_SHARE_NAME}"
 ```
 
 Watch the `Status` field.  It will go:
@@ -658,21 +672,18 @@ This usually takes 10–30 seconds.  If it goes to `error`, check the logs.
 
 ### 11c — Allow access from a client
 
-Grant read/write access to a specific IP address (replace with your
-actual client IP):
-
 ```bash
 openstack share access create \
-  my-first-share \
+  "${TEST_SHARE_NAME}" \
   ip \
-  192.168.10.5 \
+  "${CLIENT_IP}" \
   --access-level rw
 ```
 
 Check the access rule was applied:
 
 ```bash
-openstack share access list my-first-share
+openstack share access list "${TEST_SHARE_NAME}"
 ```
 
 The `State` should show `active`.
@@ -680,7 +691,7 @@ The `State` should show `active`.
 ### 11d — Get the export path
 
 ```bash
-openstack share show my-first-share -c export_locations
+openstack share show "${TEST_SHARE_NAME}" -c export_locations
 ```
 
 You will see output like:
@@ -691,6 +702,14 @@ You will see output like:
 +------------------+----------------------------------------------------+
 ```
 
+Save the path to a variable for use in the next step:
+
+```bash
+export SHARE_PATH=$(openstack share show "${TEST_SHARE_NAME}" \
+  -c export_locations -f value | grep -oP '(?<=path = )\S+')
+echo "Share path: ${SHARE_PATH}"
+```
+
 ---
 
 ## Step 12 — Mount the Share on a Client
@@ -699,17 +718,17 @@ On a client machine that has the WekaFS client installed (same Steps 2a–2d):
 
 ```bash
 # Create a mount point
-mkdir -p /mnt/my-first-share
+mkdir -p /mnt/${TEST_SHARE_NAME}
 
-# Mount the share (replace the path with your export_location from Step 11d)
-mount -t wekafs 10.0.1.50/manila_<uuid> /mnt/my-first-share
+# Mount the share
+mount -t wekafs "${SHARE_PATH}" /mnt/${TEST_SHARE_NAME}
 
 # Verify it's mounted
-df -h /mnt/my-first-share
+df -h /mnt/${TEST_SHARE_NAME}
 
 # Write a test file
-echo "Hello from Manila Weka!" > /mnt/my-first-share/test.txt
-cat /mnt/my-first-share/test.txt
+echo "Hello from Manila Weka!" > /mnt/${TEST_SHARE_NAME}/test.txt
+cat /mnt/${TEST_SHARE_NAME}/test.txt
 ```
 
 If the mount succeeds and you can write a file, the deployment is complete.
@@ -725,14 +744,19 @@ openstack share type create \
   --extra-specs driver_handles_share_servers=false share_backend_name=weka
 
 # Create an NFS share
-openstack share create --name my-nfs-share --share-type weka-nfs --size 10 NFS
+openstack share create \
+  --name my-nfs-share \
+  --share-type weka-nfs \
+  --size 10 \
+  NFS
 
 # Get the NFS export path
-openstack share show my-nfs-share -c export_locations
-# Output: 10.0.1.50:/manila_<uuid>
+export NFS_PATH=$(openstack share show my-nfs-share \
+  -c export_locations -f value | grep -oP '(?<=path = )\S+')
 
 # Mount with standard NFS
-mount -t nfs 10.0.1.50:/manila_<uuid> /mnt/my-nfs-share
+mkdir -p /mnt/my-nfs-share
+mount -t nfs "${NFS_PATH}" /mnt/my-nfs-share
 ```
 
 ---
@@ -742,15 +766,17 @@ mount -t nfs 10.0.1.50:/manila_<uuid> /mnt/my-nfs-share
 To mount shares automatically at boot, add an entry to `/etc/fstab` on
 each client:
 
-```
-# WekaFS share
-10.0.1.50/manila_<uuid>  /mnt/my-first-share  wekafs  defaults,num_cores=1  0  0
+```bash
+# WekaFS share — append to /etc/fstab
+echo "${SHARE_PATH}  /mnt/${TEST_SHARE_NAME}  wekafs  defaults,num_cores=1  0  0" \
+  | sudo tee -a /etc/fstab
 
-# NFS share
-10.0.1.50:/manila_<uuid>  /mnt/my-nfs-share  nfs  defaults,_netdev  0  0
+# NFS share — append to /etc/fstab
+echo "${NFS_PATH}  /mnt/my-nfs-share  nfs  defaults,_netdev  0  0" \
+  | sudo tee -a /etc/fstab
 ```
 
-Test the fstab entry without rebooting:
+Test the fstab entries without rebooting:
 
 ```bash
 mount -a
@@ -767,7 +793,7 @@ Use this checklist to confirm every step completed successfully:
 - [ ] Manila service user exists in Keystone (`openstack user list | grep manila`)
 - [ ] Manila API endpoints registered (`openstack endpoint list | grep share`)
 - [ ] All Manila services show `State: up` in `openstack share service list`
-- [ ] `curl -k https://<weka-ip>:14000/api/v2/status` returns JSON
+- [ ] `curl -k https://${WEKA_IP}:14000/api/v2/status` returns JSON
 - [ ] `lsmod | grep wekafs` shows the module is loaded
 - [ ] `python3 -c "from manila.share.drivers.weka.driver import WekaShareDriver"` prints nothing (no error)
 - [ ] `/mnt/weka` directory exists and is owned by the Manila user
@@ -828,5 +854,5 @@ If you encounter a problem not covered in this guide:
    ```bash
    sudo journalctl -u openstack-manila-share --since "1 hour ago" > manila-share.log
    ```
-3. Open a GitHub issue at `https://github.com/weka/manila-weka-driver/issues`
+3. Open a GitHub issue at `https://github.com/mbookham7/manila-weka-driver/issues`
    and attach the log (remove any passwords first).
