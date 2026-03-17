@@ -124,8 +124,8 @@ class TestWekaApiClientAuth(unittest.TestCase):
                                return_value=not_found) as req_mock:
             self.assertRaises(
                 weka_exc.WekaNotFound, c._request, 'GET', '/fileSystems/bad')
-        # Should only be called once (no retries for 4xx other than 429)
-        self.assertEqual(2, req_mock.call_count)  # initial + 1 auth retry
+        # 404 is not retried and does not trigger auth refresh
+        self.assertEqual(1, req_mock.call_count)
 
 
 class TestWekaApiClientFilesystems(unittest.TestCase):

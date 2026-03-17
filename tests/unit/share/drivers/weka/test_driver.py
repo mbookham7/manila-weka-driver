@@ -330,7 +330,11 @@ class TestWekaShareDriverSnapshots(unittest.TestCase):
     def test_delete_snapshot_idempotent_when_share_not_found(self):
         drv = self._make_driver()
         drv._client.get_filesystem_by_name.return_value = None
+        # Use a share with no export_location metadata so _get_fs_uid_for_share
+        # falls back to get_filesystem_by_name (which returns None → ShareNotFound)
+        share_no_meta = fakes.fake_share(export_locations=[])
         snap_model = fakes.fake_snapshot_model()
+        snap_model['share'] = share_no_meta
 
         # Should not raise
         drv.delete_snapshot(context=None, snapshot=snap_model)
