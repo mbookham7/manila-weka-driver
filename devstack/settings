@@ -1,0 +1,8 @@
+# DevStack settings for the Manila Weka driver plugin
+# Sourced by DevStack before plugin.sh is called.
+
+# Default branch for the driver
+MANILA_WEKA_DRIVER_BRANCH=${MANILA_WEKA_DRIVER_BRANCH:-main}
+
+# Default WekaFS mount base (can be overridden via MANILA_OPTGROUP_weka_weka_mount_point_base)
+MANILA_WEKA_MOUNT_BASE=${MANILA_WEKA_MOUNT_BASE:-/mnt/weka}
