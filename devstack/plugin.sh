@@ -29,19 +29,13 @@ fi
 function install_manila_weka_driver {
     echo_summary "Installing Manila Weka driver package"
 
-    # Install the driver package into the Manila Python venv
-    # pip_install_gr handles venv detection and pip arguments
-    if type pip_install_gr &>/dev/null; then
-        pip_install_gr "${MANILA_WEKA_DRIVER_DIR}"
+    # pip_install_gr checks OpenStack global requirements and rejects third-party
+    # packages not listed there. Use the shared venv's pip directly instead.
+    local venv="/opt/stack/data/venv"
+    if [ -f "${venv}/bin/pip" ]; then
+        "${venv}/bin/pip" install -e "${MANILA_WEKA_DRIVER_DIR}"
     else
-        # Fallback for older DevStack versions
-        local MANILA_VENV="${MANILA_VENV:-/opt/stack/data/venv/manila}"
-        if [ -f "${MANILA_VENV}/bin/pip" ]; then
-            "${MANILA_VENV}/bin/pip" install -e "${MANILA_WEKA_DRIVER_DIR}"
-        else
-            # Last resort: system pip
-            pip3 install -e "${MANILA_WEKA_DRIVER_DIR}" || true
-        fi
+        pip3 install -e "${MANILA_WEKA_DRIVER_DIR}"
     fi
 
     # Symlink the driver package into the Manila source tree.
