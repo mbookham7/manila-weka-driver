@@ -425,7 +425,7 @@ class WekaShareDriver(driver.ShareDriver):
     # ------------------------------------------------------------------
 
     def update_access(self, context, share, access_rules, add_rules,
-                      delete_rules, update_rules, share_server=None):
+                      delete_rules, update_rules=None, share_server=None):
         """Update access rules for a share.
 
         Supports both full-sync (all rules in access_rules, empty add/delete)
