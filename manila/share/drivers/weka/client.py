@@ -748,12 +748,17 @@ class WekaApiClient(object):
         """Create an NFS export permission.
 
         POST /nfs/permissions
+
+        Weka v5.x uses 'filesystem' (name) and 'group' (name) rather
+        than UID-based fields; the access type field is 'permission_type'.
+        The caller should pass the filesystem name as fs_uid and the
+        client group name as client_group.
         """
         payload = {
-            'client_group_id': client_group,
-            'filesystem_id': fs_uid,
+            'group': client_group,
+            'filesystem': fs_uid,
             'path': path,
-            'access_type': access_type,
+            'permission_type': access_type,
         }
         if squash is not None:
             payload['squash'] = squash
