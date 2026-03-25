@@ -335,7 +335,6 @@ class WekaApiClient(object):
             'total_capacity': total_capacity,
             'encrypted': encrypted,
             'auth_required': auth_required,
-            'allow_no_space': allow_no_space,
         }
         if ssd_capacity is not None:
             payload['ssd_capacity'] = ssd_capacity
@@ -362,8 +361,6 @@ class WekaApiClient(object):
             payload['ssd_capacity'] = ssd_capacity
         if auth_required is not None:
             payload['auth_required'] = auth_required
-        if allow_no_space is not None:
-            payload['allow_no_space'] = allow_no_space
         if data_reduction is not None:
             payload['data_reduction'] = data_reduction
         result = self._put(
