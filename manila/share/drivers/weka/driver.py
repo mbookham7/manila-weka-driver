@@ -376,7 +376,7 @@ class WekaShareDriver(driver.ShareDriver):
         """
         fs_uid = self._get_fs_uid_for_share(share)
         fs = self._client.get_filesystem(fs_uid)
-        used_bytes = fs.get('usedSizeBytes', 0) or 0
+        used_bytes = fs.get('used_total', fs.get('usedSizeBytes', 0)) or 0
         new_bytes = weka_utils.gb_to_bytes(new_size)
 
         if used_bytes > new_bytes:
@@ -526,17 +526,18 @@ class WekaShareDriver(driver.ShareDriver):
         """Remove NFS permissions associated with an access rule."""
         all_perms = self._client.list_nfs_permissions()
         for perm in all_perms:
-            if perm.get('filesystemId') == fs_uid:
+            if perm.get('filesystem_id', perm.get('filesystemId')) == fs_uid:
                 # Match by client group name which encodes the rule ID.
-                if rule['access_id'][:8] in perm.get(
-                        'clientGroupName', ''):
+                cg_name = perm.get('client_group_name',
+                                   perm.get('clientGroupName', ''))
+                if rule['access_id'][:8] in cg_name:
                     self._client.delete_nfs_permission(perm['uid'])
 
     def _remove_all_nfs_permissions(self, fs_uid):
         """Remove all NFS permissions for a filesystem (used during delete)."""
         perms = self._client.list_nfs_permissions()
         for perm in perms:
-            if perm.get('filesystemId') == fs_uid:
+            if perm.get('filesystem_id', perm.get('filesystemId')) == fs_uid:
                 try:
                     self._client.delete_nfs_permission(perm['uid'])
                 except weka_exc.WekaNotFound:
@@ -685,7 +686,7 @@ class WekaShareDriver(driver.ShareDriver):
                 reason=_(
                     'Weka filesystem "%s" not found') % fs_name)
 
-        size_bytes = fs.get('totalCapacity', 0) or 0
+        size_bytes = fs.get('total_budget', fs.get('totalCapacity', 0)) or 0
         size_gb = max(1, int(weka_utils.bytes_to_gb(size_bytes)))
 
         LOG.info(
@@ -718,18 +719,30 @@ class WekaShareDriver(driver.ShareDriver):
     # ------------------------------------------------------------------
 
     def _share_name(self, share_id):
-        """Return the Weka filesystem name for a Manila share ID."""
+        """Return the Weka filesystem name for a Manila share ID.
+
+        Weka enforces a 32-character maximum on filesystem names.
+        Uses 'manila_' prefix (7 chars) + first 25 hex chars of the UUID
+        (hyphens stripped) = 32 chars total.
+        """
         prefix = (self.configuration.safe_get('weka_share_name_prefix')
                   or 'manila_')
-        return '{prefix}{share_id}'.format(prefix=prefix, share_id=share_id)
+        id_hex = share_id.replace('-', '')
+        max_id_len = 32 - len(prefix)
+        return prefix + id_hex[:max_id_len]
 
     def _share_name_from_share(self, share):
         """Attempt to derive filesystem name from a share model."""
         return self._share_name(share['id'])
 
     def _snapshot_name(self, snapshot_id):
-        """Return the Weka snapshot name for a Manila snapshot ID."""
-        return 'snap_{}'.format(snapshot_id)
+        """Return the Weka snapshot name for a Manila snapshot ID.
+
+        Weka enforces a 32-character maximum on snapshot names.
+        Uses 's_' prefix (2 chars) + first 30 hex chars of the UUID = 32 chars.
+        """
+        id_hex = snapshot_id.replace('-', '')
+        return 's_' + id_hex[:30]
 
     def _mount_point(self, fs_name):
         """Return the local mount point directory for a filesystem."""

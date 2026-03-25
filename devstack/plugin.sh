@@ -83,6 +83,21 @@ function configure_manila_weka_driver {
     sudo mkdir -p "${WEKA_MOUNT_BASE}"
     sudo chmod 777 "${WEKA_MOUNT_BASE}"
     echo "Created WekaFS mount base: ${WEKA_MOUNT_BASE}"
+
+    # Patch Manila constants.py to add WEKAFS to SUPPORTED_SHARE_PROTOCOLS.
+    # Manila 2024.2 does not include WEKAFS in its hardcoded protocol list.
+    local CONSTANTS_FILE="${MANILA_DIR}/manila/common/constants.py"
+    if [ -f "${CONSTANTS_FILE}" ]; then
+        if grep -q "'WEKAFS'" "${CONSTANTS_FILE}"; then
+            echo "WEKAFS already present in Manila SUPPORTED_SHARE_PROTOCOLS"
+        else
+            sudo sed -i "s/SUPPORTED_SHARE_PROTOCOLS = (/SUPPORTED_SHARE_PROTOCOLS = (/;s/'MAPRFS')/'MAPRFS', 'WEKAFS')/" \
+                "${CONSTANTS_FILE}"
+            echo "Patched Manila constants.py to add WEKAFS to SUPPORTED_SHARE_PROTOCOLS"
+        fi
+    else
+        echo "WARNING: Manila constants.py not found at ${CONSTANTS_FILE}"
+    fi
 }
 
 # ─── Plugin dispatcher ─────────────────────────────────────────────────────────

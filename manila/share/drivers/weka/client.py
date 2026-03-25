@@ -331,18 +331,18 @@ class WekaApiClient(object):
         """
         payload = {
             'name': name,
-            'groupName': group_name,
-            'totalCapacity': total_capacity,
+            'group_name': group_name,
+            'total_capacity': total_capacity,
             'encrypted': encrypted,
-            'authRequired': auth_required,
-            'allowNoSpace': allow_no_space,
+            'auth_required': auth_required,
+            'allow_no_space': allow_no_space,
         }
         if ssd_capacity is not None:
-            payload['ssdCapacity'] = ssd_capacity
+            payload['ssd_capacity'] = ssd_capacity
         if obs_buckets:
-            payload['obsBuckets'] = obs_buckets
+            payload['obs_buckets'] = obs_buckets
         if data_reduction is not None:
-            payload['dataReduction'] = data_reduction
+            payload['data_reduction'] = data_reduction
         result = self._post('/fileSystems', json=payload)
         return result.get('data', result)
 
@@ -357,15 +357,15 @@ class WekaApiClient(object):
         if name is not None:
             payload['name'] = name
         if total_capacity is not None:
-            payload['totalCapacity'] = total_capacity
+            payload['total_capacity'] = total_capacity
         if ssd_capacity is not None:
-            payload['ssdCapacity'] = ssd_capacity
+            payload['ssd_capacity'] = ssd_capacity
         if auth_required is not None:
-            payload['authRequired'] = auth_required
+            payload['auth_required'] = auth_required
         if allow_no_space is not None:
-            payload['allowNoSpace'] = allow_no_space
+            payload['allow_no_space'] = allow_no_space
         if data_reduction is not None:
-            payload['dataReduction'] = data_reduction
+            payload['data_reduction'] = data_reduction
         result = self._put(
             '/fileSystems/{uid}'.format(uid=fs_uid), json=payload)
         return result.get('data', result)
@@ -377,7 +377,7 @@ class WekaApiClient(object):
         """
         params = {}
         if purge_from_obs:
-            params['purgeFromObs'] = True
+            params['purge_from_obs'] = True
         return self._delete(
             '/fileSystems/{uid}'.format(uid=fs_uid), params=params or None)
 
@@ -405,12 +405,12 @@ class WekaApiClient(object):
         POST /fileSystems/{uid}/objectStoreBuckets
         """
         payload = {
-            'obsBucketId': obs_bucket_uid,
+            'obs_bucket_id': obs_bucket_uid,
             'mode': mode,
-            'removeDetached': remove_detached,
+            'remove_detached': remove_detached,
         }
         if tiering_ssd_percent is not None:
-            payload['tieringSsdPercent'] = tiering_ssd_percent
+            payload['tiering_ssd_percent'] = tiering_ssd_percent
         result = self._post(
             '/fileSystems/{uid}/objectStoreBuckets'.format(uid=fs_uid),
             json=payload,
@@ -464,9 +464,9 @@ class WekaApiClient(object):
         """
         payload = {'name': name}
         if target_ssd_retention is not None:
-            payload['targetSsdRetention'] = target_ssd_retention
+            payload['target_ssd_retention'] = target_ssd_retention
         if start_demote is not None:
-            payload['startDemote'] = start_demote
+            payload['start_demote'] = start_demote
         result = self._post('/fileSystemGroups', json=payload)
         return result.get('data', result)
 
@@ -481,9 +481,9 @@ class WekaApiClient(object):
         if name is not None:
             payload['name'] = name
         if target_ssd_retention is not None:
-            payload['targetSsdRetention'] = target_ssd_retention
+            payload['target_ssd_retention'] = target_ssd_retention
         if start_demote is not None:
-            payload['startDemote'] = start_demote
+            payload['start_demote'] = start_demote
         result = self._put(
             '/fileSystemGroups/{uid}'.format(uid=group_uid), json=payload)
         return result.get('data', result)
@@ -526,11 +526,11 @@ class WekaApiClient(object):
         """
         payload = {}
         if hard_limit_bytes is not None:
-            payload['hardLimitBytes'] = hard_limit_bytes
+            payload['hard_limit_bytes'] = hard_limit_bytes
         if soft_limit_bytes is not None:
-            payload['softLimitBytes'] = soft_limit_bytes
+            payload['soft_limit_bytes'] = soft_limit_bytes
         if grace_seconds is not None:
-            payload['graceSeconds'] = grace_seconds
+            payload['grace_seconds'] = grace_seconds
         result = self._post(
             '/fileSystems/{uid}/quota/{inode}'.format(
                 uid=fs_uid, inode=inode_id),
@@ -548,11 +548,11 @@ class WekaApiClient(object):
         """
         payload = {}
         if hard_limit_bytes is not None:
-            payload['hardLimitBytes'] = hard_limit_bytes
+            payload['hard_limit_bytes'] = hard_limit_bytes
         if soft_limit_bytes is not None:
-            payload['softLimitBytes'] = soft_limit_bytes
+            payload['soft_limit_bytes'] = soft_limit_bytes
         if grace_seconds is not None:
-            payload['graceSeconds'] = grace_seconds
+            payload['grace_seconds'] = grace_seconds
         result = self._patch(
             '/fileSystems/{uid}/quota/{inode}'.format(
                 uid=fs_uid, inode=inode_id),
@@ -586,11 +586,11 @@ class WekaApiClient(object):
         """
         payload = {}
         if hard_limit_bytes is not None:
-            payload['hardLimitBytes'] = hard_limit_bytes
+            payload['hard_limit_bytes'] = hard_limit_bytes
         if soft_limit_bytes is not None:
-            payload['softLimitBytes'] = soft_limit_bytes
+            payload['soft_limit_bytes'] = soft_limit_bytes
         if grace_seconds is not None:
-            payload['graceSeconds'] = grace_seconds
+            payload['grace_seconds'] = grace_seconds
         result = self._post(
             '/fileSystems/{uid}/defaultQuota'.format(uid=fs_uid),
             json=payload,
@@ -639,9 +639,9 @@ class WekaApiClient(object):
         """
         payload = {'name': name}
         if ssd_quota is not None:
-            payload['ssdQuota'] = ssd_quota
+            payload['ssd_quota'] = ssd_quota
         if total_quota is not None:
-            payload['totalQuota'] = total_quota
+            payload['total_quota'] = total_quota
         result = self._post('/organizations', json=payload)
         return result.get('data', result)
 
@@ -655,9 +655,9 @@ class WekaApiClient(object):
         if name is not None:
             payload['name'] = name
         if ssd_quota is not None:
-            payload['ssdQuota'] = ssd_quota
+            payload['ssd_quota'] = ssd_quota
         if total_quota is not None:
-            payload['totalQuota'] = total_quota
+            payload['total_quota'] = total_quota
         result = self._put(
             '/organizations/{uid}'.format(uid=org_uid), json=payload)
         return result.get('data', result)
@@ -679,13 +679,13 @@ class WekaApiClient(object):
         """
         payload = {}
         if total_capacity is not None:
-            payload['totalCapacity'] = total_capacity
+            payload['total_capacity'] = total_capacity
         if ssd_capacity is not None:
-            payload['ssdCapacity'] = ssd_capacity
+            payload['ssd_capacity'] = ssd_capacity
         if max_download_mbps is not None:
-            payload['maxDownloadMbps'] = max_download_mbps
+            payload['max_download_mbps'] = max_download_mbps
         if max_upload_mbps is not None:
-            payload['maxUploadMbps'] = max_upload_mbps
+            payload['max_upload_mbps'] = max_upload_mbps
         result = self._put(
             '/organizations/{uid}/limits'.format(uid=org_uid), json=payload)
         return result.get('data', result)
@@ -723,7 +723,7 @@ class WekaApiClient(object):
         payload = {
             'name': name,
             'subnet': subnet,
-            'allowManageGids': allow_manage_gids,
+            'allow_manage_gids': allow_manage_gids,
         }
         if gateway:
             payload['gateway'] = gateway
@@ -753,17 +753,17 @@ class WekaApiClient(object):
         POST /nfs/permissions
         """
         payload = {
-            'clientGroupId': client_group,
-            'filesystemId': fs_uid,
+            'client_group_id': client_group,
+            'filesystem_id': fs_uid,
             'path': path,
-            'accessType': access_type,
+            'access_type': access_type,
         }
         if squash is not None:
             payload['squash'] = squash
         if anon_uid is not None:
-            payload['anonUid'] = anon_uid
+            payload['anon_uid'] = anon_uid
         if anon_gid is not None:
-            payload['anonGid'] = anon_gid
+            payload['anon_gid'] = anon_gid
         result = self._post('/nfs/permissions', json=payload)
         return result.get('data', result)
 
@@ -819,7 +819,7 @@ class WekaApiClient(object):
         """
         params = {}
         if fs_uid is not None:
-            params['filesystemId'] = fs_uid
+            params['filesystem_id'] = fs_uid
         result = self._get('/snapshots', params=params or None)
         return result.get('data', result)
 
@@ -844,9 +844,9 @@ class WekaApiClient(object):
         POST /snapshots
         """
         payload = {
-            'filesystemId': fs_uid,
+            'filesystem_id': fs_uid,
             'name': name,
-            'isWritable': is_writable,
+            'is_writable': is_writable,
         }
         result = self._post('/snapshots', json=payload)
         return result.get('data', result)
@@ -860,7 +860,7 @@ class WekaApiClient(object):
         if name is not None:
             payload['name'] = name
         if is_writable is not None:
-            payload['isWritable'] = is_writable
+            payload['is_writable'] = is_writable
         result = self._put(
             '/snapshots/{uid}'.format(uid=snap_uid), json=payload)
         return result.get('data', result)
@@ -941,9 +941,9 @@ class WekaApiClient(object):
             'role': role,
         }
         if posix_uid is not None:
-            payload['posixUid'] = posix_uid
+            payload['posix_uid'] = posix_uid
         if posix_gid is not None:
-            payload['posixGid'] = posix_gid
+            payload['posix_gid'] = posix_gid
         result = self._post('/users', json=payload)
         return result.get('data', result)
 
@@ -973,13 +973,13 @@ class WekaApiClient(object):
         POST /kms
         """
         payload = {
-            'kmsType': kms_type,
-            'masterKeyUrl': master_key_url,
+            'kms_type': kms_type,
+            'master_key_url': master_key_url,
         }
         if token:
             payload['token'] = token
         if base_url:
-            payload['baseUrl'] = base_url
+            payload['base_url'] = base_url
         result = self._post('/kms', json=payload)
         return result.get('data', result)
 
@@ -1012,7 +1012,7 @@ class WekaApiClient(object):
 
         POST /s3/buckets
         """
-        payload = {'name': name, 'filesystemId': fs_uid, 'path': path}
+        payload = {'name': name, 'filesystem_id': fs_uid, 'path': path}
         result = self._post('/s3/buckets', json=payload)
         return result.get('data', result)
 
@@ -1044,13 +1044,13 @@ class WekaApiClient(object):
         """
         payload = {
             'name': name,
-            'obsName': obs_name,
-            'bucketName': bucket_name,
+            'obs_name': obs_name,
+            'bucket_name': bucket_name,
         }
         if access_key_id:
-            payload['accessKeyId'] = access_key_id
+            payload['access_key_id'] = access_key_id
         if secret_access_key:
-            payload['secretAccessKey'] = secret_access_key
+            payload['secret_access_key'] = secret_access_key
         if region:
             payload['region'] = region
         if endpoint:
