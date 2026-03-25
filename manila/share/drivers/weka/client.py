@@ -740,9 +740,9 @@ class WekaApiClient(object):
     def list_nfs_permissions(self):
         """Return all NFS export permissions.
 
-        GET /nfsPermissions
+        GET /nfs/permissions
         """
-        result = self._get('/nfsPermissions')
+        result = self._get('/nfs/permissions')
         return result.get('data', result)
 
     def create_nfs_permission(self, client_group, fs_uid, path,
@@ -750,7 +750,7 @@ class WekaApiClient(object):
                               squash=None, anon_uid=None, anon_gid=None):
         """Create an NFS export permission.
 
-        POST /nfsPermissions
+        POST /nfs/permissions
         """
         payload = {
             'clientGroupId': client_group,
@@ -764,49 +764,49 @@ class WekaApiClient(object):
             payload['anonUid'] = anon_uid
         if anon_gid is not None:
             payload['anonGid'] = anon_gid
-        result = self._post('/nfsPermissions', json=payload)
+        result = self._post('/nfs/permissions', json=payload)
         return result.get('data', result)
 
     def delete_nfs_permission(self, permission_uid):
         """Delete an NFS export permission.
 
-        DELETE /nfsPermissions/{uid}
+        DELETE /nfs/permissions/{uid}
         """
-        return self._delete('/nfsPermissions/{uid}'.format(uid=permission_uid))
+        return self._delete('/nfs/permissions/{uid}'.format(uid=permission_uid))
 
     def list_client_groups(self):
         """Return all NFS client groups.
 
-        GET /clientGroups
+        GET /nfs/clientGroups
         """
-        result = self._get('/clientGroups')
+        result = self._get('/nfs/clientGroups')
         return result.get('data', result)
 
     def create_client_group(self, name):
         """Create a new NFS client group.
 
-        POST /clientGroups
+        POST /nfs/clientGroups
         """
         payload = {'name': name}
-        result = self._post('/clientGroups', json=payload)
+        result = self._post('/nfs/clientGroups', json=payload)
         return result.get('data', result)
 
     def add_client_group_rule(self, group_uid, rule_type, rule_value):
         """Add a rule to an NFS client group.
 
-        POST /clientGroups/{uid}/rules
+        POST /nfs/clientGroups/{uid}/rules
         """
         payload = {'type': rule_type, 'rule': rule_value}
         result = self._post(
-            '/clientGroups/{uid}/rules'.format(uid=group_uid), json=payload)
+            '/nfs/clientGroups/{uid}/rules'.format(uid=group_uid), json=payload)
         return result.get('data', result)
 
     def delete_client_group(self, group_uid):
         """Delete an NFS client group.
 
-        DELETE /clientGroups/{uid}
+        DELETE /nfs/clientGroups/{uid}
         """
-        return self._delete('/clientGroups/{uid}'.format(uid=group_uid))
+        return self._delete('/nfs/clientGroups/{uid}'.format(uid=group_uid))
 
     # ------------------------------------------------------------------
     # Snapshot methods
