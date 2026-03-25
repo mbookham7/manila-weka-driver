@@ -632,7 +632,7 @@ class WekaShareDriver(driver.ShareDriver):
             'share_backend_name': backend_name,
             'vendor_name': 'Weka',
             'driver_version': DRIVER_VERSION,
-            'storage_protocol': _WEKAFS_PROTO,
+            'storage_protocol': ' '.join(_SUPPORTED_PROTOCOLS),
             'total_capacity_gb': weka_utils.bytes_to_gb(total_bytes),
             'free_capacity_gb': weka_utils.bytes_to_gb(free_bytes),
             'reserved_percentage': 0,
