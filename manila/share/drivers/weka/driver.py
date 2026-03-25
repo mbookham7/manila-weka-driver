@@ -63,6 +63,7 @@ Critical implementation notes
     subsequent operations never need to scan all filesystems.
 """
 
+import ipaddress
 import os
 
 from oslo_config import cfg
@@ -93,6 +94,22 @@ _SUPPORTED_PROTOCOLS = (_WEKAFS_PROTO, _NFS_PROTO)
 
 # GiB constant for unit conversion.
 _GiB = units.Gi
+
+
+def _cidr_to_weka_ip(cidr_str):
+    """Convert CIDR notation to Weka v5 IP/dotted-mask format.
+
+    Weka v5 client group rules require dotted-decimal subnet masks
+    (e.g. 192.168.1.0/255.255.255.0) rather than CIDR prefix notation
+    (e.g. 192.168.1.0/24).  Single IP addresses are returned unchanged.
+    """
+    if '/' not in cidr_str:
+        return cidr_str
+    try:
+        net = ipaddress.IPv4Network(cidr_str, strict=False)
+        return '{}/{}'.format(str(net.network_address), str(net.netmask))
+    except ValueError:
+        return cidr_str
 
 
 class WekaShareDriver(driver.ShareDriver):
@@ -475,7 +492,7 @@ class WekaShareDriver(driver.ShareDriver):
                 cg = self._client.create_client_group(cg_name)
                 cg_uid = cg['uid']
                 self._client.add_client_group_rule(
-                    cg_uid, 'IP', rule['access_to'])
+                    cg_uid, 'IP', _cidr_to_weka_ip(rule['access_to']))
                 self._client.create_nfs_permission(
                     client_group=cg_uid,
                     fs_uid=fs_uid,

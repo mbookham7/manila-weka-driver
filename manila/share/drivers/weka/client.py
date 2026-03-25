@@ -792,8 +792,15 @@ class WekaApiClient(object):
         """Add a rule to an NFS client group.
 
         POST /nfs/clientGroups/{uid}/rules
+
+        Weka v5.x uses {'ip': '<IP/mask>'} or {'dns': '<pattern>'}
+        (dotted-decimal subnet mask, not CIDR prefix).
         """
-        payload = {'type': rule_type, 'rule': rule_value}
+        rule_type_lower = rule_type.lower()
+        if rule_type_lower == 'ip':
+            payload = {'ip': rule_value}
+        else:
+            payload = {'dns': rule_value}
         result = self._post(
             '/nfs/clientGroups/{uid}/rules'.format(uid=group_uid), json=payload)
         return result.get('data', result)
