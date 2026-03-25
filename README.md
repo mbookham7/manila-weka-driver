@@ -57,8 +57,8 @@ access protocols:
 
 ## Prerequisites
 
-- **Weka cluster version** ≥ 4.2
-- **OpenStack Manila** ≥ 2023.1 (Antelope)
+- **Weka cluster version** ≥ 4.2 (tested against 5.1.x; v5.x uses snake_case API parameters — fully supported)
+- **OpenStack Manila** ≥ 2023.1 (Antelope), tested against 2024.2 (Dalmatian)
 - **WekaFS client** installed and loaded on the Manila host:
   ```
   modprobe wekafs
@@ -111,14 +111,30 @@ echo "wekafs" | sudo tee /etc/modules-load.d/wekafs.conf
 See the [Step-by-Step Deployment Guide](docs/deployment.md#step-2--install-the-wekafs-kernel-module)
 for full details including how to find your Weka version.
 
-### 2. manila.conf example
+### 2. Patch Manila constants (WEKAFS protocol)
+
+Manila's hardcoded `SUPPORTED_SHARE_PROTOCOLS` list does not include `WEKAFS`.
+Add it before starting the Manila share service:
+
+```python
+# In /path/to/manila/manila/common/constants.py
+# Find SUPPORTED_SHARE_PROTOCOLS and add 'WEKAFS':
+SUPPORTED_SHARE_PROTOCOLS = (
+    'NFS', 'CIFS', 'FCP', 'iSCSI', 'FCOE', 'NVMEoF',
+    'GLUSTERFS', 'HDFS', 'CEPHFS', 'MAPRFS', 'WEKAFS')
+```
+
+If using DevStack, the `devstack/plugin.sh` in this repo patches this automatically.
+
+### 3. manila.conf example
 
 ```ini
 [DEFAULT]
 enabled_share_backends = weka
+enabled_share_protocols = NFS,CIFS,WEKAFS
 
 [weka]
-share_driver = manila.share.drivers.weka.driver:WekaShareDriver
+share_driver = manila.share.drivers.weka.driver.WekaShareDriver
 share_backend_name = weka
 driver_handles_share_servers = false
 snapshot_support = true
@@ -149,7 +165,7 @@ weka_api_timeout       = 30
 weka_max_api_retries   = 3
 ```
 
-### 3. Configuration reference
+### 4. Configuration reference
 
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
@@ -209,6 +225,25 @@ openstack share type create weka-org-a false \
 Then configure a separate Manila backend stanza for each organization
 with the appropriate `weka_organization`, `weka_username`, and
 `weka_password`.
+
+## DevStack Integration
+
+A DevStack plugin is included in `devstack/` for automated test environment setup.
+
+Add to your `local.conf`:
+
+```ini
+enable_plugin manila-weka-driver https://github.com/mbookham7/manila-weka-driver main
+```
+
+The plugin:
+- Installs the driver package into Manila's venv
+- Symlinks the driver into the Manila source tree
+- Loads the `wekafs` kernel module
+- Patches `manila/common/constants.py` to add `WEKAFS` to `SUPPORTED_SHARE_PROTOCOLS`
+
+See [mbookham7/weka-manila-test-env](https://github.com/mbookham7/weka-manila-test-env)
+for a full Terraform-based AWS test environment that uses this plugin.
 
 ## Troubleshooting
 
