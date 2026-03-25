@@ -887,10 +887,27 @@ class WekaApiClient(object):
     def get_capacity(self):
         """Return cluster-wide capacity statistics.
 
-        GET /capacity
+        Tries GET /capacity (Weka 4.x); falls back to computing totals
+        from GET /drives (Weka 5.x removed the /capacity endpoint).
+        Returns a dict with totalBytes and usedBytes keys.
         """
-        result = self._get('/capacity')
-        return result.get('data', result)
+        try:
+            result = self._get('/capacity')
+            return result.get('data', result)
+        except Exception:
+            pass
+
+        # Weka 5.x fallback: compute from individual drives
+        drives_result = self._get('/drives')
+        drives = drives_result.get('data', drives_result)
+        if not isinstance(drives, list):
+            return {}
+        total_bytes = sum(d.get('size_bytes', 0) for d in drives)
+        used_bytes = sum(
+            int(d.get('size_bytes', 0) * d.get('percentage_used', 0) / 100)
+            for d in drives
+        )
+        return {'totalBytes': total_bytes, 'usedBytes': used_bytes}
 
     def get_cluster_info(self):
         """Return cluster information (name, version, nodes).
