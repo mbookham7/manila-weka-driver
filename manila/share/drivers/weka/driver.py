@@ -648,6 +648,7 @@ class WekaShareDriver(driver.ShareDriver):
                 'total_capacity_gb': weka_utils.bytes_to_gb(total_bytes),
                 'free_capacity_gb': weka_utils.bytes_to_gb(free_bytes),
                 'reserved_percentage': 0,
+                'reserved_snapshot_percentage': 0,
             }],
         }
         super(WekaShareDriver, self)._update_share_stats(stats)
