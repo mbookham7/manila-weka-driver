@@ -273,9 +273,9 @@ class WekaApiClient(object):
     def get_cluster_status(self):
         """Return cluster status dict (name, version, health).
 
-        GET /status
+        Weka 5.x: GET /cluster  (replaces the old GET /status endpoint)
         """
-        return self._get('/status')
+        return self._get('/cluster')
 
     # ------------------------------------------------------------------
     # Filesystem methods

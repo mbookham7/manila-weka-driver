@@ -216,6 +216,9 @@ class WekaShareDriver(driver.ShareDriver):
                 raise exception.ManilaException(
                     message=_(
                         'Weka driver: API authentication failed: %s') % exc)
+            except Exception as exc:
+                LOG.warning("Could not verify cluster status during setup: %s",
+                            exc)
 
     # ------------------------------------------------------------------
     # Share lifecycle
