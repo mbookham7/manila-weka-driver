@@ -764,9 +764,19 @@ class WekaShareDriver(driver.ShareDriver):
         """
         # Try to get UID from export location metadata.
         for loc in share.get('export_locations', []) or []:
-            meta = loc.get('metadata') or {}
-            if meta.get('weka_fs_uid'):
-                return meta['weka_fs_uid']
+            try:
+                meta = loc.get('metadata') or {}
+                if isinstance(meta, dict):
+                    uid = meta.get('weka_fs_uid')
+                else:
+                    # Manila ORM object — iterate key/value pairs
+                    uid = next(
+                        (v for k, v in meta.items() if k == 'weka_fs_uid'),
+                        None)
+                if uid:
+                    return uid
+            except (AttributeError, TypeError):
+                pass
 
         fs_name = self._share_name(share['id'])
         fs = self._client.get_filesystem_by_name(fs_name)
