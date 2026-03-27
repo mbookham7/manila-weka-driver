@@ -303,10 +303,13 @@ class TestWekaApiClientSnapshots(unittest.TestCase):
         snap = fakes.fake_snapshot()
         resp = _make_response(200, {'data': snap})
         with mock.patch.object(self.client._session, 'request',
-                               return_value=resp):
+                               return_value=resp) as mock_req:
             result = self.client.create_snapshot(
                 fakes.FAKE_FS_UID, fakes.FAKE_SNAP_NAME)
         self.assertEqual(snap, result)
+        call_kwargs = mock_req.call_args[1]
+        self.assertIn('filesystem_uid', call_kwargs.get('json', {}))
+        self.assertNotIn('filesystem_id', call_kwargs.get('json', {}))
 
     def test_delete_snapshot(self):
         resp = _make_response(200, {})
