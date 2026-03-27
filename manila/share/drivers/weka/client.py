@@ -824,13 +824,14 @@ class WekaApiClient(object):
     def list_snapshots(self, fs_uid=None):
         """Return all snapshots, optionally filtered by filesystem UID.
 
-        GET /snapshots
+        GET /snapshots does not support server-side filtering; filter
+        client-side using the 'filesystemUid' field returned per snapshot.
         """
-        params = {}
+        result = self._get('/snapshots')
+        snaps = result.get('data', result)
         if fs_uid is not None:
-            params['fs_uid'] = fs_uid
-        result = self._get('/snapshots', params=params or None)
-        return result.get('data', result)
+            snaps = [s for s in snaps if s.get('filesystemUid') == fs_uid]
+        return snaps
 
     def get_snapshot(self, snap_uid):
         """Return a single snapshot by UID.

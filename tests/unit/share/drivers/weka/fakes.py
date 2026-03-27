@@ -72,7 +72,7 @@ def fake_snapshot(uid=FAKE_SNAP_UID, name=FAKE_SNAP_NAME,
     return {
         'uid': uid,
         'name': name,
-        'filesystemId': fs_uid,
+        'filesystemUid': fs_uid,
         'isWritable': is_writable,
         'creationTime': '2024-01-01T00:00:00Z',
     }
