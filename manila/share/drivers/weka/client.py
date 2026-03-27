@@ -828,7 +828,7 @@ class WekaApiClient(object):
         """
         params = {}
         if fs_uid is not None:
-            params['filesystemId'] = fs_uid
+            params['fs_uid'] = fs_uid
         result = self._get('/snapshots', params=params or None)
         return result.get('data', result)
 
@@ -853,7 +853,7 @@ class WekaApiClient(object):
         POST /snapshots
         """
         payload = {
-            'filesystemId': fs_uid,
+            'fs_uid': fs_uid,
             'name': name,
             'is_writable': is_writable,
         }

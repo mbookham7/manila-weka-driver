@@ -308,9 +308,9 @@ class TestWekaApiClientSnapshots(unittest.TestCase):
                 fakes.FAKE_FS_UID, fakes.FAKE_SNAP_NAME)
         self.assertEqual(snap, result)
         call_kwargs = mock_req.call_args[1]
-        self.assertIn('filesystemId', call_kwargs.get('json', {}))
+        self.assertIn('fs_uid', call_kwargs.get('json', {}))
         self.assertNotIn('filesystem_id', call_kwargs.get('json', {}))
-        self.assertNotIn('filesystem_uid', call_kwargs.get('json', {}))
+        self.assertNotIn('filesystemId', call_kwargs.get('json', {}))
 
     def test_delete_snapshot(self):
         resp = _make_response(200, {})
