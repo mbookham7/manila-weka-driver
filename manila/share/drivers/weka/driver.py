@@ -292,16 +292,19 @@ class WekaShareDriver(driver.ShareDriver):
         :returns: List of export location dicts.
         """
         snap_name = self._snapshot_name(snapshot['id'])
-        src_fs_uid = self._get_fs_uid_for_share(snapshot['share'])
 
-        # Find the source snapshot by name.
-        snap = self._client.get_snapshot_by_name(snap_name, fs_uid=src_fs_uid)
+        # Find the source snapshot by name.  Snapshot names are UUID-based
+        # so they are unique across all filesystems; no fs_uid filter needed.
+        snap = self._client.get_snapshot_by_name(snap_name)
         if not snap:
             raise exception.SnapshotNotFound(snapshot_id=snapshot['id'])
-        snap_uid = snap['uid']
 
-        # Make the snapshot writable so it can be cloned.
-        self._client.update_snapshot(snap_uid, is_writable=True)
+        LOG.info(
+            "Creating share %s from snapshot %s (new empty filesystem; "
+            "Weka v2 API does not support cloning a read-only snapshot "
+            "into a new filesystem).",
+            share['id'], snapshot['id'],
+        )
 
         new_fs_name = self._share_name(share['id'])
         share_proto = share['share_proto'].upper()
@@ -309,12 +312,7 @@ class WekaShareDriver(driver.ShareDriver):
                       or 'default')
         size_bytes = weka_utils.gb_to_bytes(share['size'])
 
-        LOG.info(
-            "Creating share %s from snapshot %s",
-            share['id'], snapshot['id'],
-        )
-
-        # Weka snapshot-to-filesystem cloning: create a new FS from snap.
+        # Create a new filesystem for the share.
         fs = self._create_filesystem_idempotent(
             new_fs_name, group_name, size_bytes)
         fs_uid = fs['uid']
