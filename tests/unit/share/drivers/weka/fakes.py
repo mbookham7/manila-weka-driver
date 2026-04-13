@@ -30,11 +30,13 @@ def _uid():
 # ---------------------------------------------------------------------------
 
 FAKE_FS_UID = 'fs-uid-1234'
-FAKE_FS_NAME = 'manila_share-uuid-1234'
+# Must match _share_name('share-uuid-1234'): prefix 'manila_' + hex-stripped ID
+FAKE_FS_NAME = 'manila_shareuuid1234'
 FAKE_GROUP_UID = 'grp-uid-5678'
 FAKE_GROUP_NAME = 'default'
 FAKE_SNAP_UID = 'snap-uid-abcd'
-FAKE_SNAP_NAME = 'snap_snapshot-uuid-0001'
+# Must match _snapshot_name('snapshot-uuid-0001'): prefix 's_' + hex-stripped ID
+FAKE_SNAP_NAME = 's_snapshotuuid0001'
 FAKE_ORG_UID = 'org-uid-9999'
 FAKE_PERM_UID = 'perm-uid-aaaa'
 FAKE_CG_UID = 'cg-uid-bbbb'
@@ -88,13 +90,15 @@ def fake_organization(uid=FAKE_ORG_UID, name='TestOrg',
     }
 
 
-def fake_nfs_permission(uid=FAKE_PERM_UID, fs_uid=FAKE_FS_UID,
-                        cg_uid=FAKE_CG_UID, path='/', access_type='RW'):
+def fake_nfs_permission(uid=FAKE_PERM_UID, fs_name=FAKE_FS_NAME,
+                        cg_uid=FAKE_CG_UID,
+                        cg_name='manila-abcd1234-efgh5678',
+                        path='/', access_type='RW'):
     return {
         'uid': uid,
-        'filesystemId': fs_uid,
+        'filesystem': fs_name,   # Weka v5: filesystem name (not UID)
+        'group': cg_name,        # Weka v5: client group name
         'clientGroupId': cg_uid,
-        'clientGroupName': 'manila-abcd1234-efgh5678',
         'path': path,
         'accessType': access_type,
     }

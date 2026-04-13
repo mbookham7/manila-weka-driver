@@ -327,6 +327,34 @@ class TestWekaApiClientSnapshots(unittest.TestCase):
             result = self.client.restore_snapshot(fakes.FAKE_SNAP_UID)
         self.assertIsNotNone(result)
 
+    def test_list_snapshots_returns_all(self):
+        snaps = [fakes.fake_snapshot(), fakes.fake_snapshot(uid='snap-2')]
+        resp = _make_response(200, {'data': snaps})
+        with mock.patch.object(self.client._session, 'request',
+                               return_value=resp):
+            result = self.client.list_snapshots()
+        self.assertEqual(2, len(result))
+
+    def test_list_snapshots_filtered_by_fs_uid(self):
+        snap_match = fakes.fake_snapshot(uid='snap-match',
+                                         fs_uid='target-fs-uid')
+        snap_other = fakes.fake_snapshot(uid='snap-other',
+                                         fs_uid='other-fs-uid')
+        resp = _make_response(200, {'data': [snap_match, snap_other]})
+        with mock.patch.object(self.client._session, 'request',
+                               return_value=resp):
+            result = self.client.list_snapshots(fs_uid='target-fs-uid')
+        self.assertEqual(1, len(result))
+        self.assertEqual('snap-match', result[0]['uid'])
+
+    def test_get_snapshot(self):
+        snap = fakes.fake_snapshot()
+        resp = _make_response(200, {'data': snap})
+        with mock.patch.object(self.client._session, 'request',
+                               return_value=resp):
+            result = self.client.get_snapshot(fakes.FAKE_SNAP_UID)
+        self.assertEqual(snap, result)
+
     def test_get_snapshot_by_name_found(self):
         snap = fakes.fake_snapshot()
         with mock.patch.object(self.client, 'list_snapshots',
@@ -399,6 +427,36 @@ class TestWekaApiClientNFS(unittest.TestCase):
                                return_value=resp):
             result = self.client.create_client_group('test-group')
         self.assertEqual(cg, result)
+
+    def test_add_client_group_rule_ip(self):
+        resp = _make_response(200, {'data': {}})
+
+        def check(method, url, **kwargs):
+            self.assertEqual('POST', method)
+            self.assertIn('/nfs/clientGroups/', url)
+            self.assertIn('/rules', url)
+            self.assertEqual({'ip': '10.0.0.0/255.255.255.0'},
+                             kwargs.get('json'))
+            return resp
+
+        with mock.patch.object(self.client._session, 'request',
+                               side_effect=check):
+            self.client.add_client_group_rule(
+                fakes.FAKE_CG_UID, 'IP', '10.0.0.0/255.255.255.0')
+
+    def test_add_client_group_rule_dns(self):
+        resp = _make_response(200, {'data': {}})
+
+        def check(method, url, **kwargs):
+            self.assertEqual('POST', method)
+            self.assertIn('/nfs/clientGroups/', url)
+            self.assertEqual({'dns': '*.example.com'}, kwargs.get('json'))
+            return resp
+
+        with mock.patch.object(self.client._session, 'request',
+                               side_effect=check):
+            self.client.add_client_group_rule(
+                fakes.FAKE_CG_UID, 'DNS', '*.example.com')
 
 
 class TestWekaApiClientCapacity(unittest.TestCase):
@@ -578,7 +636,7 @@ class TestWekaApiClientSDKStubs(unittest.TestCase):
             self.client.list_interface_groups()
 
     def test_list_nfs_permissions(self):
-        with self._patch_request('GET', '/nfsPermissions', []):
+        with self._patch_request('GET', '/nfs/permissions', []):
             self.client.list_nfs_permissions()
 
     def test_list_client_groups(self):

@@ -203,8 +203,8 @@ class TestWekaShareDriverCreateFromSnapshot(unittest.TestCase):
         result = drv.create_share_from_snapshot(
             context=None, share=share, snapshot=snap_model)
 
-        drv._client.update_snapshot.assert_called_once_with(
-            fakes.FAKE_SNAP_UID, is_writable=True)
+        # Weka v2 API does not support cloning; creates a new empty filesystem.
+        drv._client.update_snapshot.assert_not_called()
         drv._client.create_filesystem.assert_called_once()
         self.assertEqual(1, len(result))
 
@@ -577,13 +577,15 @@ class TestWekaShareDriverMiscellaneous(unittest.TestCase):
 
     def test_share_name_uses_prefix(self):
         drv = self._make_driver()
+        # Hyphens are stripped from the share UUID before appending.
         name = drv._share_name('my-uuid')
-        self.assertEqual('manila_my-uuid', name)
+        self.assertEqual('manila_myuuid', name)
 
     def test_snapshot_name(self):
         drv = self._make_driver()
+        # Driver uses 's_' prefix and strips hyphens from the snapshot UUID.
         name = drv._snapshot_name('snap-uuid')
-        self.assertEqual('snap_snap-uuid', name)
+        self.assertEqual('s_snapuuid', name)
 
     def test_mount_point(self):
         drv = self._make_driver()
@@ -611,6 +613,193 @@ class TestWekaShareDriverMiscellaneous(unittest.TestCase):
             exception.ShareNotFound,
             drv.ensure_share, None, share,
         )
+
+
+class TestWekaShareDriverNFSHelpers(unittest.TestCase):
+    """Tests for NFS permission helpers and internal utility methods."""
+
+    def _make_driver(self):
+        drv = weka_driver.WekaShareDriver.__new__(weka_driver.WekaShareDriver)
+        drv.configuration = _make_config()
+        drv._client = mock.Mock()
+        drv._fs_group_uid = fakes.FAKE_GROUP_UID
+        return drv
+
+    # ------------------------------------------------------------------
+    # _remove_nfs_rule
+    # ------------------------------------------------------------------
+
+    def test_remove_nfs_rule_removes_matching_permission(self):
+        drv = self._make_driver()
+        rule_id = 'abcdefgh-1234-5678-0000-111111111111'
+        # cg_name embeds the first 8 chars of the rule access_id.
+        perm = fakes.fake_nfs_permission(
+            fs_name=fakes.FAKE_FS_NAME,
+            cg_name='manila-shareuui-abcdefgh',
+        )
+        drv._client.list_nfs_permissions.return_value = [perm]
+        rule = fakes.fake_access_rule(rule_id=rule_id)
+
+        drv._remove_nfs_rule(fakes.FAKE_FS_NAME, rule)
+
+        drv._client.delete_nfs_permission.assert_called_once_with(
+            fakes.FAKE_PERM_UID)
+
+    def test_remove_nfs_rule_skips_different_filesystem(self):
+        drv = self._make_driver()
+        rule_id = 'abcdefgh-1234-5678-0000-111111111111'
+        perm = fakes.fake_nfs_permission(
+            fs_name='other-filesystem',
+            cg_name='manila-shareuui-abcdefgh',
+        )
+        drv._client.list_nfs_permissions.return_value = [perm]
+        rule = fakes.fake_access_rule(rule_id=rule_id)
+
+        drv._remove_nfs_rule(fakes.FAKE_FS_NAME, rule)
+
+        drv._client.delete_nfs_permission.assert_not_called()
+
+    def test_remove_nfs_rule_skips_non_matching_rule_id(self):
+        drv = self._make_driver()
+        rule_id = 'abcdefgh-1234-5678-0000-111111111111'
+        # cg_name does NOT contain the first 8 chars of rule_id.
+        perm = fakes.fake_nfs_permission(
+            fs_name=fakes.FAKE_FS_NAME,
+            cg_name='manila-shareuui-xxxxxxxx',
+        )
+        drv._client.list_nfs_permissions.return_value = [perm]
+        rule = fakes.fake_access_rule(rule_id=rule_id)
+
+        drv._remove_nfs_rule(fakes.FAKE_FS_NAME, rule)
+
+        drv._client.delete_nfs_permission.assert_not_called()
+
+    def test_remove_nfs_rule_empty_permissions(self):
+        drv = self._make_driver()
+        drv._client.list_nfs_permissions.return_value = []
+        rule = fakes.fake_access_rule()
+
+        # Should not raise, nothing to delete.
+        drv._remove_nfs_rule(fakes.FAKE_FS_NAME, rule)
+        drv._client.delete_nfs_permission.assert_not_called()
+
+    # ------------------------------------------------------------------
+    # _remove_all_nfs_permissions
+    # ------------------------------------------------------------------
+
+    def test_remove_all_nfs_permissions_deletes_matching(self):
+        drv = self._make_driver()
+        perm1 = fakes.fake_nfs_permission(
+            uid='perm-uid-0001', fs_name=fakes.FAKE_FS_NAME)
+        perm2 = fakes.fake_nfs_permission(
+            uid='perm-uid-0002', fs_name=fakes.FAKE_FS_NAME)
+        perm_other = fakes.fake_nfs_permission(
+            uid='perm-uid-0003', fs_name='other-filesystem')
+        drv._client.list_nfs_permissions.return_value = [
+            perm1, perm2, perm_other]
+
+        drv._remove_all_nfs_permissions(fakes.FAKE_FS_NAME)
+
+        self.assertEqual(2, drv._client.delete_nfs_permission.call_count)
+        drv._client.delete_nfs_permission.assert_any_call('perm-uid-0001')
+        drv._client.delete_nfs_permission.assert_any_call('perm-uid-0002')
+
+    def test_remove_all_nfs_permissions_empty(self):
+        drv = self._make_driver()
+        drv._client.list_nfs_permissions.return_value = []
+
+        # Should not raise.
+        drv._remove_all_nfs_permissions(fakes.FAKE_FS_NAME)
+        drv._client.delete_nfs_permission.assert_not_called()
+
+    def test_remove_all_nfs_permissions_silences_not_found(self):
+        drv = self._make_driver()
+        perm = fakes.fake_nfs_permission(fs_name=fakes.FAKE_FS_NAME)
+        drv._client.list_nfs_permissions.return_value = [perm]
+        from manila.share.drivers.weka import exceptions as weka_exc
+        drv._client.delete_nfs_permission.side_effect = (
+            weka_exc.WekaNotFound(reason='already gone'))
+
+        # WekaNotFound should be swallowed, not re-raised.
+        drv._remove_all_nfs_permissions(fakes.FAKE_FS_NAME)
+
+    # ------------------------------------------------------------------
+    # _get_backends
+    # ------------------------------------------------------------------
+
+    def test_get_backends_returns_api_server(self):
+        drv = self._make_driver()
+        self.assertEqual('weka-test.example.com', drv._get_backends())
+
+    def test_get_backends_empty_when_not_configured(self):
+        drv = self._make_driver()
+        drv.configuration = _make_config(weka_api_server=None)
+        self.assertEqual('', drv._get_backends())
+
+    # ------------------------------------------------------------------
+    # _get_fs_uid_for_share
+    # ------------------------------------------------------------------
+
+    def test_get_fs_uid_from_export_metadata(self):
+        drv = self._make_driver()
+        share = fakes.fake_share()  # has weka_fs_uid in export metadata
+
+        uid = drv._get_fs_uid_for_share(share)
+
+        self.assertEqual(fakes.FAKE_FS_UID, uid)
+        drv._client.get_filesystem_by_name.assert_not_called()
+
+    def test_get_fs_uid_falls_back_to_api(self):
+        drv = self._make_driver()
+        # Share with no export_locations — must fall back to API lookup.
+        share = fakes.fake_share(export_locations=[])
+        drv._client.get_filesystem_by_name.return_value = (
+            fakes.fake_filesystem())
+
+        uid = drv._get_fs_uid_for_share(share)
+
+        self.assertEqual(fakes.FAKE_FS_UID, uid)
+        drv._client.get_filesystem_by_name.assert_called_once()
+
+    def test_get_fs_uid_raises_when_not_found(self):
+        drv = self._make_driver()
+        share = fakes.fake_share(export_locations=[])
+        drv._client.get_filesystem_by_name.return_value = None
+
+        from manila import exception
+        self.assertRaises(
+            exception.ShareNotFound,
+            drv._get_fs_uid_for_share, share,
+        )
+
+
+class TestCidrToWekaIp(unittest.TestCase):
+    """Tests for the _cidr_to_weka_ip module-level helper."""
+
+    def test_cidr_prefix_converted_to_dotted_mask(self):
+        result = weka_driver._cidr_to_weka_ip('192.168.1.0/24')
+        self.assertEqual('192.168.1.0/255.255.255.0', result)
+
+    def test_single_ip_unchanged(self):
+        result = weka_driver._cidr_to_weka_ip('10.0.0.5')
+        self.assertEqual('10.0.0.5', result)
+
+    def test_slash_zero_all_hosts(self):
+        result = weka_driver._cidr_to_weka_ip('0.0.0.0/0')
+        self.assertEqual('0.0.0.0/0.0.0.0', result)
+
+    def test_slash_32_single_host(self):
+        result = weka_driver._cidr_to_weka_ip('10.1.2.3/32')
+        self.assertEqual('10.1.2.3/255.255.255.255', result)
+
+    def test_host_bits_set_normalised(self):
+        # strict=False — host bits are masked off.
+        result = weka_driver._cidr_to_weka_ip('192.168.1.5/24')
+        self.assertEqual('192.168.1.0/255.255.255.0', result)
+
+    def test_invalid_input_returned_unchanged(self):
+        result = weka_driver._cidr_to_weka_ip('not-an-ip/24')
+        self.assertEqual('not-an-ip/24', result)
 
 
 if __name__ == '__main__':
