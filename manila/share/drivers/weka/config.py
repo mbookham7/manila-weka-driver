@@ -25,6 +25,17 @@ weka_opts = [
             'Must be reachable from the Manila host on port weka_api_port.'
         ),
     ),
+    cfg.HostAddressOpt(
+        'weka_nfs_server',
+        default=None,
+        help=(
+            'Hostname or IP address of the Weka NFS protocol gateway, used '
+            'as the NFS server address in share export locations. '
+            'If not set, weka_api_server is used. Set this when the NFS '
+            'gateway has a different address than the REST API endpoint '
+            '(e.g. a dedicated NFS load balancer).'
+        ),
+    ),
     cfg.PortOpt(
         'weka_api_port',
         default=14000,

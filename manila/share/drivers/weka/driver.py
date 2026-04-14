@@ -861,9 +861,12 @@ class WekaShareDriver(driver.ShareDriver):
             path = '{backends}/{fs_name}'.format(
                 backends=backends, fs_name=fs_name)
         else:
-            # NFS path: backends is the NFS server address.
+            # NFS: use dedicated NFS server if configured, else fall back to
+            # the API server address.
+            nfs_server = (
+                self.configuration.safe_get('weka_nfs_server') or backends)
             path = '{server}:/{fs_name}'.format(
-                server=backends, fs_name=fs_name)
+                server=nfs_server, fs_name=fs_name)
 
         metadata = {
             'weka_fs_uid': fs_uid,

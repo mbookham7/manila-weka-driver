@@ -45,6 +45,7 @@ def _make_config(**kwargs):
         'weka_api_timeout': 30,
         'weka_max_api_retries': 3,
         'weka_share_name_prefix': 'manila_',
+        'weka_nfs_server': None,
         'share_backend_name': 'weka',
     }
     defaults.update(kwargs)
@@ -735,6 +736,43 @@ class TestWekaShareDriverNFSHelpers(unittest.TestCase):
         drv = self._make_driver()
         drv.configuration = _make_config(weka_api_server=None)
         self.assertEqual('', drv._get_backends())
+
+    # ------------------------------------------------------------------
+    # _build_export_locations
+    # ------------------------------------------------------------------
+
+    def test_build_export_locations_nfs_uses_api_server_by_default(self):
+        drv = self._make_driver()
+        share = fakes.fake_share(proto='NFS')
+        result = drv._build_export_locations(
+            share, fakes.FAKE_FS_NAME, fakes.FAKE_FS_UID, 'NFS')
+        self.assertEqual(
+            'weka-test.example.com:/{}'.format(fakes.FAKE_FS_NAME),
+            result[0]['path'],
+        )
+
+    def test_build_export_locations_nfs_uses_nfs_server_when_set(self):
+        drv = self._make_driver()
+        drv.configuration = _make_config(
+            weka_nfs_server='nfs-lb.example.com')
+        share = fakes.fake_share(proto='NFS')
+        result = drv._build_export_locations(
+            share, fakes.FAKE_FS_NAME, fakes.FAKE_FS_UID, 'NFS')
+        self.assertEqual(
+            'nfs-lb.example.com:/{}'.format(fakes.FAKE_FS_NAME),
+            result[0]['path'],
+        )
+
+    def test_build_export_locations_wekafs_uses_api_server(self):
+        drv = self._make_driver()
+        drv.configuration = _make_config(
+            weka_nfs_server='nfs-lb.example.com')
+        share = fakes.fake_share(proto='WEKAFS')
+        result = drv._build_export_locations(
+            share, fakes.FAKE_FS_NAME, fakes.FAKE_FS_UID, 'WEKAFS')
+        # WEKAFS path must use API server, not the NFS server
+        self.assertIn('weka-test.example.com', result[0]['path'])
+        self.assertNotIn('nfs-lb.example.com', result[0]['path'])
 
     # ------------------------------------------------------------------
     # _get_fs_uid_for_share
