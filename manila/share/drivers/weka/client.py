@@ -759,6 +759,7 @@ class WekaApiClient(object):
             'filesystem': fs_uid,
             'path': path,
             'permission_type': access_type,
+            'supported_versions': ['V3', 'V4'],
         }
         if squash is not None:
             payload['squash'] = squash
