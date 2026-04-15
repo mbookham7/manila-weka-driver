@@ -762,7 +762,7 @@ class WekaApiClient(object):
             'supported_versions': ['V3', 'V4'],
         }
         if squash is not None:
-            payload['squash'] = squash
+            payload['root_squashing'] = squash
         if anon_uid is not None:
             payload['anon_uid'] = anon_uid
         if anon_gid is not None:

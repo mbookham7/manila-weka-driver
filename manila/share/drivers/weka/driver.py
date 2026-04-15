@@ -498,6 +498,7 @@ class WekaShareDriver(driver.ShareDriver):
                     fs_uid=fs_name,
                     path='/',
                     access_type=nfs_type,
+                    squash=False,
                 )
                 LOG.debug(
                     "Added NFS %s access for %s on share %s",
