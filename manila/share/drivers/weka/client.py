@@ -811,11 +811,42 @@ class WekaApiClient(object):
             '/nfs/clientGroups/{uid}/rules'.format(uid=group_uid), json=payload)
         return result.get('data', result)
 
+    def get_client_group(self, group_uid):
+        """Return a single NFS client group by UID.
+
+        GET /nfs/clientGroups/{uid}
+        """
+        result = self._get('/nfs/clientGroups/{uid}'.format(uid=group_uid))
+        return result.get('data', result)
+
+    def delete_client_group_rule(self, group_uid, rule_uid):
+        """Delete a single rule from an NFS client group.
+
+        DELETE /nfs/clientGroups/{uid}/rules/{rule_uid}
+        """
+        return self._delete(
+            '/nfs/clientGroups/{uid}/rules/{rule_uid}'.format(
+                uid=group_uid, rule_uid=rule_uid))
+
     def delete_client_group(self, group_uid):
-        """Delete an NFS client group.
+        """Delete an NFS client group and all its rules.
+
+        Weka requires all rules to be removed before the group can be
+        deleted.  This method fetches and removes any rules first.
 
         DELETE /nfs/clientGroups/{uid}
         """
+        try:
+            cg = self.get_client_group(group_uid)
+            for rule in cg.get('rules', []):
+                rule_uid = rule.get('uid')
+                if rule_uid:
+                    try:
+                        self.delete_client_group_rule(group_uid, rule_uid)
+                    except Exception:
+                        pass
+        except Exception:
+            pass
         return self._delete('/nfs/clientGroups/{uid}'.format(uid=group_uid))
 
     # ------------------------------------------------------------------
