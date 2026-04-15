@@ -167,7 +167,7 @@ class WekaMount(object):
                 self.fs_name, self.mount_point,
             )
             try:
-                self._execute(*cmd, run_as_root=True)
+                self._execute(*cmd, run_as_root=True, root_helper='sudo')
             except processutils.ProcessExecutionError as exc:
                 raise exceptions.WekaMountError(
                     reason='mount command failed: {}'.format(exc))
@@ -196,7 +196,7 @@ class WekaMount(object):
                 self.fs_name, self.mount_point,
             )
             try:
-                self._execute(*cmd, run_as_root=True)
+                self._execute(*cmd, run_as_root=True, root_helper='sudo')
             except processutils.ProcessExecutionError as exc:
                 raise exceptions.WekaUnmountError(
                     reason='umount command failed: {}'.format(exc))

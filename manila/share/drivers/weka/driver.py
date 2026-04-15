@@ -349,6 +349,7 @@ class WekaShareDriver(driver.ShareDriver):
                 snap_mount.rstrip('/') + '/.',
                 new_mount.rstrip('/') + '/',
                 run_as_root=True,
+                root_helper='sudo',
             )
             LOG.info(
                 "Copied snapshot %s content to new filesystem %s",
