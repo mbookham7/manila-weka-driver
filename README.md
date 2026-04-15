@@ -73,6 +73,7 @@ access protocols:
 | [Step-by-Step Deployment Guide](docs/deployment.md) | Full novice-friendly walkthrough from prerequisites to first mounted share |
 | [Architecture Overview](#architecture) | How the driver fits into OpenStack Manila |
 | [Configuration Reference](#configuration) | All `weka_*` options explained |
+| [Known Issues and Limitations](docs/known-issues.md) | Known constraints, workarounds, and areas for future improvement |
 
 ## Installation
 
