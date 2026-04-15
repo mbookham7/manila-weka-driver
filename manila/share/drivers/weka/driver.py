@@ -65,6 +65,8 @@ Critical implementation notes
 
 import ipaddress
 import os
+import socket
+import time
 
 from oslo_concurrency import processutils
 from oslo_config import cfg
@@ -286,9 +288,9 @@ class WekaShareDriver(driver.ShareDriver):
                                    share_server=None, parent_share=None):
         """Create a new share populated with data from a snapshot.
 
-        Creates a new Weka filesystem, then mounts both the source snapshot
-        (via the WekaFS POSIX client using <fs>@<snap> notation) and the new
-        filesystem and copies all content between them.
+        Creates a new Weka filesystem, then uses NFS mounts on the Manila host
+        to rsync the snapshot contents (via .snapshots/<accessPoint>/) into the
+        new filesystem.
 
         :param context: Request context.
         :param share: New share model dict.
@@ -320,39 +322,84 @@ class WekaShareDriver(driver.ShareDriver):
         fs = self._create_filesystem_idempotent(
             new_fs_name, group_name, size_bytes)
 
-        # Mount the source snapshot and the new filesystem, then copy.
-        # WekaFS POSIX snapshots are accessed via <fs_name>@<snap_name>.
-        backends = self._get_backends()
-        num_cores = self.configuration.safe_get('weka_num_cores') or 1
-        snap_fs_name = '{}@{}'.format(src_fs_name, snap_name)
-        snap_mount = self._mount_point(snap_fs_name)
-        new_mount = self._mount_point(new_fs_name)
+        nfs_server = self.configuration.safe_get('weka_nfs_server')
+        if not nfs_server:
+            raise exception.ManilaException(
+                message=_('weka_nfs_server must be configured for '
+                          'create_share_from_snapshot'))
 
-        src_mnt = weka_posix.WekaMount(
-            backends=backends,
-            fs_name=snap_fs_name,
-            mount_point=snap_mount,
-            num_cores=num_cores,
-        )
-        dst_mnt = weka_posix.WekaMount(
-            backends=backends,
-            fs_name=new_fs_name,
-            mount_point=new_mount,
-            num_cores=num_cores,
-        )
+        # Determine the local IP that routes to the NFS server.
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        try:
+            s.connect((nfs_server, 2049))
+            local_ip = s.getsockname()[0]
+        except Exception:
+            local_ip = socket.gethostbyname(socket.gethostname())
+        finally:
+            s.close()
+
+        tmp_cg_name = 'manila-snap-{}'.format(share['id'][:8])
+        cg_uid = None
+        src_mnt = '/tmp/manila_snap_src_{}'.format(share['id'][:8])
+        dst_mnt = '/tmp/manila_snap_dst_{}'.format(share['id'][:8])
+        src_mounted = False
+        dst_mounted = False
 
         try:
-            src_mnt.mount()
-            dst_mnt.mount()
+            cg = self._client.create_client_group(tmp_cg_name)
+            cg_uid = cg['uid']
+            self._client.add_client_group_rule(cg_uid, 'IP', local_ip)
+
+            self._client.create_nfs_permission(
+                client_group=tmp_cg_name,
+                fs_uid=src_fs_name,
+                path='/',
+                access_type='RO',
+                squash=False,
+            )
+            self._client.create_nfs_permission(
+                client_group=tmp_cg_name,
+                fs_uid=new_fs_name,
+                path='/',
+                access_type='RW',
+                squash=False,
+            )
+
+            # Allow the NFS server to apply the new permissions.
+            time.sleep(5)
+
+            os.makedirs(src_mnt, exist_ok=True)
+            os.makedirs(dst_mnt, exist_ok=True)
+
             processutils.execute(
-                'cp', '-a',
-                snap_mount.rstrip('/') + '/.',
-                new_mount.rstrip('/') + '/',
-                run_as_root=True,
-                root_helper='sudo',
+                'mount', '-t', 'nfs',
+                '{}:/{}'.format(nfs_server, src_fs_name),
+                src_mnt,
+                run_as_root=True, root_helper='sudo',
+            )
+            src_mounted = True
+
+            processutils.execute(
+                'mount', '-t', 'nfs',
+                '{}:/{}'.format(nfs_server, new_fs_name),
+                dst_mnt,
+                run_as_root=True, root_helper='sudo',
+            )
+            dst_mounted = True
+
+            snap_access_point = snap.get('accessPoint') or snap_name
+            snap_dir = os.path.join(src_mnt, '.snapshots', snap_access_point)
+
+            LOG.info("Rsyncing snapshot data from %s to %s",
+                     snap_dir, dst_mnt)
+            processutils.execute(
+                'rsync', '-a',
+                snap_dir.rstrip('/') + '/',
+                dst_mnt.rstrip('/') + '/',
+                run_as_root=True, root_helper='sudo',
             )
             LOG.info(
-                "Copied snapshot %s content to new filesystem %s",
+                "Copied snapshot %s content to new filesystem %s via NFS",
                 snap_name, new_fs_name,
             )
         except Exception as exc:
@@ -362,12 +409,40 @@ class WekaShareDriver(driver.ShareDriver):
             )
             raise
         finally:
+            if dst_mounted:
+                try:
+                    processutils.execute('umount', dst_mnt,
+                                        run_as_root=True, root_helper='sudo')
+                except Exception as e:
+                    LOG.warning("Failed to umount %s: %s", dst_mnt, e)
+            if src_mounted:
+                try:
+                    processutils.execute('umount', src_mnt,
+                                        run_as_root=True, root_helper='sudo')
+                except Exception as e:
+                    LOG.warning("Failed to umount %s: %s", src_mnt, e)
             for mnt in (src_mnt, dst_mnt):
                 try:
-                    mnt.unmount(force=True)
-                except Exception as exc:
-                    LOG.warning(
-                        "Unmount %s failed: %s", mnt.mount_point, exc)
+                    os.rmdir(mnt)
+                except Exception:
+                    pass
+            # Clean up temporary NFS permissions by client group name.
+            try:
+                for perm in self._client.list_nfs_permissions():
+                    if perm.get('group') == tmp_cg_name:
+                        try:
+                            self._client.delete_nfs_permission(perm['uid'])
+                        except Exception:
+                            pass
+            except Exception as e:
+                LOG.warning("Failed to clean up NFS permissions for %s: %s",
+                            tmp_cg_name, e)
+            if cg_uid:
+                try:
+                    self._client.delete_client_group(cg_uid)
+                except Exception as e:
+                    LOG.warning("Failed to delete client group %s: %s",
+                                tmp_cg_name, e)
 
         export_locations = self._build_export_locations(
             share, new_fs_name, fs['uid'], share_proto)
