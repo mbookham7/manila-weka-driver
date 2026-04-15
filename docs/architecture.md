@@ -135,11 +135,12 @@ happens exclusively in `driver.py` using `weka_utils.gb_to_bytes()` and
 
 4xx errors (except 429) are not retried — they indicate client errors.
 
-### 8. NFS vs WEKAFS protocol selection
+### 8. POSIX vs NFS protocol selection
 
-NFS is the recommended protocol for new deployments.  WEKAFS offers lower
-latency and full POSIX semantics but requires the WekaFS kernel module,
-which does not compile on Linux kernel 6.17+.  See
+WEKAFS is the preferred protocol for its performance advantages (sub-250 µs
+latency, full POSIX semantics, native quota enforcement).  NFS is supported
+for hosts where the WekaFS kernel module cannot be installed, including
+hosts running Linux kernel 6.17+ where the module does not compile.  See
 [Known Issues](known-issues.md#1-wekafs-kernel-module-incompatible-with-linux-kernel-617).
 
 When `share_proto == 'NFS'`:

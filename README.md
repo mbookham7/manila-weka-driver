@@ -8,27 +8,26 @@ using the WekaFS POSIX client for optimal performance.
 This driver exposes Weka filesystems as Manila shares.  It supports two
 access protocols:
 
-- **NFS** (recommended) — standard NFS exports via Weka's built-in NFS
+- **WEKAFS** (primary) — the WekaFS kernel POSIX client mounted directly
+  on the Manila host.  Sub-250 µs latency, full POSIX semantics, native
+  quota enforcement.  Requires the WekaFS kernel module to be installed.
+  > **Note:** The WekaFS kernel module does not compile on Linux kernel 6.17+.
+  > See [Known Issues](docs/known-issues.md#1-wekafs-kernel-module-incompatible-with-linux-kernel-617).
+- **NFS** (secondary) — standard NFS exports via Weka's built-in NFS
   gateway.  Works on all Linux kernel versions with no additional client
   software required.
-- **WEKAFS** — the WekaFS kernel POSIX client mounted directly on the
-  Manila host.  Sub-250 µs latency, full POSIX semantics, native quota
-  enforcement.  Requires the WekaFS kernel module to be installed and is
-  not compatible with Linux kernel 6.17+ (see
-  [Known Issues](docs/known-issues.md#1-wekafs-kernel-module-incompatible-with-linux-kernel-617)).
 
-### Protocol Comparison
+### Why POSIX over NFS?
 
-| Attribute | NFS | WekaFS POSIX |
+| Attribute | WekaFS POSIX | NFS |
 |-----------|:---:|:---:|
-| Kernel compatibility | All versions | < 6.17 only |
-| Client software required | None (nfs-common) | WekaFS agent |
-| Latency | 1–5 ms | < 250 µs |
-| POSIX compliance | Partial | Full |
-| File locking | Advisory only | Yes |
-| Adaptive caching | None | Page + dentry |
-| Quota enforcement | Post-hoc | Native |
-| Throughput | Network-bound | Near bare-metal |
+| Latency | < 250 µs | 1–5 ms |
+| POSIX compliance | Full | Partial |
+| File locking | Yes | Advisory only |
+| Adaptive caching | Page + dentry | None |
+| Quota enforcement | Native | Post-hoc |
+| Throughput | Near bare-metal | Network-bound |
+| Kernel compatibility | < 6.17 | All versions |
 
 ## Architecture
 
