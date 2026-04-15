@@ -18,8 +18,16 @@ Manila driver operation.
 | `shrink_share` | `/fileSystems/{uid}` | PUT | Update `totalCapacity` |
 | `ensure_share` | `/fileSystems` | GET | Verify filesystem exists |
 | `manage_existing` | `/fileSystems` | GET | Find by name |
-| `create_share_from_snapshot` | `/snapshots/{uid}` | PUT | Make writable |
-| `create_share_from_snapshot` | `/fileSystems` | POST | New filesystem |
+| `create_share_from_snapshot` | `/snapshots` | GET | Name lookup |
+| `create_share_from_snapshot` | `/fileSystems/{uid}` | GET | Resolve source filesystem |
+| `create_share_from_snapshot` | `/fileSystems` | POST | Create empty destination filesystem |
+| `create_share_from_snapshot` | `/nfs/clientGroups` | POST | Temp client group for NFS copy |
+| `create_share_from_snapshot` | `/nfs/clientGroups/{uid}/rules` | POST | Add Manila host IP rule |
+| `create_share_from_snapshot` | `/nfs/permissions` | POST | Temp RO + RW NFS exports |
+| `create_share_from_snapshot` | `/nfs/permissions` | GET | Cleanup: find temp permissions |
+| `create_share_from_snapshot` | `/nfs/permissions/{uid}` | DELETE | Cleanup: remove temp permissions |
+| `create_share_from_snapshot` | `/nfs/clientGroups/{uid}/rules/{uid}` | DELETE | Cleanup: remove IP rule |
+| `create_share_from_snapshot` | `/nfs/clientGroups/{uid}` | DELETE | Cleanup: remove temp client group |
 
 ## Snapshot Operations
 

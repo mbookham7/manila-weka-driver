@@ -309,6 +309,20 @@ The WekaFS POSIX client is a Linux kernel module that must be installed on
 the Manila host.  This is what allows Manila to mount Weka filesystems
 directly rather than going through NFS.
 
+> **Kernel compatibility:** The WekaFS kernel module does not compile on
+> Linux kernel **6.17 or later** due to a breaking change in the kernel's
+> `inode_operations` struct.  Before installing, check your kernel version:
+> ```bash
+> uname -r
+> ```
+> If you are on kernel 6.17+, pin the kernel before proceeding:
+> ```bash
+> sudo apt-mark hold linux-aws linux-image-aws linux-headers-aws
+> ```
+> See [Known Issues](known-issues.md#1-wekafs-kernel-module-incompatible-with-linux-kernel-617)
+> for full details.  If you cannot pin the kernel, use NFS protocol instead
+> — skip this step and create `NFS` share types in Step 10.
+
 ### 2a — Download and install the Weka client package
 
 The client package is downloaded from your Weka cluster itself.  This
