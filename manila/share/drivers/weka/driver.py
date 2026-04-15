@@ -340,6 +340,7 @@ class WekaShareDriver(driver.ShareDriver):
 
         tmp_cg_name = 'manila-snap-{}'.format(share['id'][:8])
         cg_uid = None
+        rule_uid = None
         src_mnt = '/tmp/manila_snap_src_{}'.format(share['id'][:8])
         dst_mnt = '/tmp/manila_snap_dst_{}'.format(share['id'][:8])
         src_mounted = False
@@ -348,7 +349,8 @@ class WekaShareDriver(driver.ShareDriver):
         try:
             cg = self._client.create_client_group(tmp_cg_name)
             cg_uid = cg['uid']
-            self._client.add_client_group_rule(cg_uid, 'IP', local_ip)
+            rule = self._client.add_client_group_rule(cg_uid, 'IP', local_ip)
+            rule_uid = rule.get('uid') if isinstance(rule, dict) else None
 
             self._client.create_nfs_permission(
                 client_group=tmp_cg_name,
@@ -438,6 +440,11 @@ class WekaShareDriver(driver.ShareDriver):
                 LOG.warning("Failed to clean up NFS permissions for %s: %s",
                             tmp_cg_name, e)
             if cg_uid:
+                if rule_uid:
+                    try:
+                        self._client.delete_client_group_rule(cg_uid, rule_uid)
+                    except Exception:
+                        pass
                 try:
                     self._client.delete_client_group(cg_uid)
                 except Exception as e:
