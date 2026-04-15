@@ -342,13 +342,13 @@ sudo ./install.sh
 ### 2b — Load the kernel module
 
 ```bash
-sudo modprobe wekafs
+sudo modprobe wekafsio
 ```
 
 ### 2c — Verify it loaded
 
 ```bash
-lsmod | grep wekafs
+lsmod | grep wekafsio
 ```
 
 You should see output like:

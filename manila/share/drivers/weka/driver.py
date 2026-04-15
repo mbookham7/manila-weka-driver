@@ -223,8 +223,8 @@ class WekaShareDriver(driver.ShareDriver):
         if not wekafs_available:
             LOG.warning(
                 "WekaFS kernel module not found in %s. "
-                "POSIX shares will fail until 'wekafs' module is loaded "
-                "(run: modprobe wekafs).",
+                "POSIX shares will fail until 'wekafsio' module is loaded "
+                "(run: modprobe wekafsio).",
                 proc_fs_file,
             )
 
@@ -794,7 +794,7 @@ class WekaShareDriver(driver.ShareDriver):
             'share_backend_name': backend_name,
             'vendor_name': 'Weka',
             'driver_version': DRIVER_VERSION,
-            'storage_protocol': _NFS_PROTO,
+            'storage_protocol': ' '.join(_SUPPORTED_PROTOCOLS),
             'total_capacity_gb': weka_utils.bytes_to_gb(total_bytes),
             'free_capacity_gb': weka_utils.bytes_to_gb(free_bytes),
             'reserved_percentage': 0,

@@ -152,10 +152,10 @@ must match the Weka cluster version exactly.
 
 ```bash
 # Check module is loaded
-lsmod | grep wekafs
+lsmod | grep wekafsio
 
 # If not loaded
-sudo modprobe wekafs
+sudo modprobe wekafsio
 ```
 
 If the module is absent or fails to load, the driver logs a warning at

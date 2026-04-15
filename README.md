@@ -66,7 +66,7 @@ access protocols:
 - **WekaFS client** installed and loaded on the Manila host (required for
   WEKAFS protocol shares only; not needed for NFS):
   ```
-  modprobe wekafs
+  modprobe wekafsio
   ```
   > **Note:** The WekaFS kernel module does not compile on Linux kernel 6.17+.
   > See [Known Issues](docs/known-issues.md#1-wekafs-kernel-module-incompatible-with-linux-kernel-617).
@@ -110,7 +110,7 @@ tar xf weka-client.tar
 sudo ./install.sh
 
 # Load the module
-sudo modprobe wekafs
+sudo modprobe wekafsio
 
 # Persist across reboots
 echo "wekafs" | sudo tee /etc/modules-load.d/wekafs.conf
@@ -259,7 +259,7 @@ for a full Terraform-based AWS test environment that uses this plugin.
 
 The WekaFS kernel module is not loaded.  Run:
 ```bash
-modprobe wekafs
+modprobe wekafsio
 lsmod | grep wekafs   # should show the module
 ```
 

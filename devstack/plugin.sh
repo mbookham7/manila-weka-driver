@@ -65,14 +65,16 @@ function configure_manila_weka_driver {
 
     # Ensure WekaFS kernel module is loaded
     # This is required for the POSIX client (WekaFS mounts) to work.
+    # The Weka client installs the module as 'wekafsio' (wekafsgw loads automatically).
+    sudo depmod -a 2>/dev/null || true
     if grep -q "wekafs" /proc/filesystems 2>/dev/null; then
         echo "wekafs is already registered in /proc/filesystems"
-    elif modprobe wekafs 2>/dev/null; then
+    elif modprobe wekafsio 2>/dev/null; then
         echo "wekafs kernel module loaded successfully"
         # Persist across reboots
-        echo "wekafs" | sudo tee /etc/modules-load.d/wekafs.conf > /dev/null
+        echo "wekafsio" | sudo tee /etc/modules-load.d/wekafs.conf > /dev/null
     else
-        echo "WARNING: Could not load wekafs kernel module."
+        echo "WARNING: Could not load wekafsio kernel module."
         echo "  The Weka agent may not be installed, or this kernel version is unsupported."
         echo "  WekaFS POSIX access will not work until the module is loaded."
         echo "  NFS protocol access may still be available if configured."
