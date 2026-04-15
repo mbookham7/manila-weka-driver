@@ -8,22 +8,27 @@ using the WekaFS POSIX client for optimal performance.
 This driver exposes Weka filesystems as Manila shares.  It supports two
 access protocols:
 
-- **WEKAFS** (primary) — the WekaFS kernel POSIX client mounted directly
-  on the Manila host.  Sub-250 µs latency, full POSIX semantics, native
-  quota enforcement.
-- **NFS** (secondary) — standard NFS exports via Weka's built-in NFS
-  server.  Suitable for legacy clients that cannot use the POSIX client.
+- **NFS** (recommended) — standard NFS exports via Weka's built-in NFS
+  gateway.  Works on all Linux kernel versions with no additional client
+  software required.
+- **WEKAFS** — the WekaFS kernel POSIX client mounted directly on the
+  Manila host.  Sub-250 µs latency, full POSIX semantics, native quota
+  enforcement.  Requires the WekaFS kernel module to be installed and is
+  not compatible with Linux kernel 6.17+ (see
+  [Known Issues](docs/known-issues.md#1-wekafs-kernel-module-incompatible-with-linux-kernel-617)).
 
-### Why POSIX over NFS?
+### Protocol Comparison
 
-| Attribute | WekaFS POSIX | NFS |
+| Attribute | NFS | WekaFS POSIX |
 |-----------|:---:|:---:|
-| Latency | < 250 µs | 1–5 ms |
-| POSIX compliance | Full | Partial |
-| File locking | Yes | Advisory only |
-| Adaptive caching | Page + dentry | None |
-| Quota enforcement | Native | Post-hoc |
-| Throughput | Near bare-metal | Network-bound |
+| Kernel compatibility | All versions | < 6.17 only |
+| Client software required | None (nfs-common) | WekaFS agent |
+| Latency | 1–5 ms | < 250 µs |
+| POSIX compliance | Partial | Full |
+| File locking | Advisory only | Yes |
+| Adaptive caching | None | Page + dentry |
+| Quota enforcement | Post-hoc | Native |
+| Throughput | Network-bound | Near bare-metal |
 
 ## Architecture
 
@@ -59,10 +64,13 @@ access protocols:
 
 - **Weka cluster version** ≥ 4.2 (tested against 5.1.x; v5.x uses snake_case API parameters — fully supported)
 - **OpenStack Manila** ≥ 2023.1 (Antelope), tested against 2024.2 (Dalmatian)
-- **WekaFS client** installed and loaded on the Manila host:
+- **WekaFS client** installed and loaded on the Manila host (required for
+  WEKAFS protocol shares only; not needed for NFS):
   ```
   modprobe wekafs
   ```
+  > **Note:** The WekaFS kernel module does not compile on Linux kernel 6.17+.
+  > See [Known Issues](docs/known-issues.md#1-wekafs-kernel-module-incompatible-with-linux-kernel-617).
 - Network connectivity from the Manila host to the Weka cluster on
   TCP port **14000** (REST API) and the WekaFS data network.
 

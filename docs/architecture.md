@@ -135,10 +135,12 @@ happens exclusively in `driver.py` using `weka_utils.gb_to_bytes()` and
 
 4xx errors (except 429) are not retried — they indicate client errors.
 
-### 8. POSIX vs NFS protocol selection
+### 8. NFS vs WEKAFS protocol selection
 
-WEKAFS is the default and recommended protocol.  NFS is supported as a
-fallback for clients that cannot install the WekaFS kernel module.
+NFS is the recommended protocol for new deployments.  WEKAFS offers lower
+latency and full POSIX semantics but requires the WekaFS kernel module,
+which does not compile on Linux kernel 6.17+.  See
+[Known Issues](known-issues.md#1-wekafs-kernel-module-incompatible-with-linux-kernel-617).
 
 When `share_proto == 'NFS'`:
 - A Weka NFS client group is created per access rule
@@ -146,6 +148,20 @@ When `share_proto == 'NFS'`:
 - Export path: `<weka_api_server>:/<fs_name>`
 
 When `share_proto == 'WEKAFS'`:
-- The filesystem is mounted locally on the Manila host
+- The filesystem is mounted locally on the Manila host via `mount -t wekafs`
 - Export path: `<weka_api_server>/<fs_name>`
 - Access rules are recorded but enforcement is at Weka auth level
+
+### 9. `create_share_from_snapshot` data copy
+
+The Weka v2 API does not expose a direct filesystem-clone-from-snapshot
+operation for read-only snapshots.  The driver implements this by:
+
+1. Creating an empty destination filesystem via the Weka API.
+2. Temporarily mounting source and destination filesystems via NFS.
+3. Using `rsync -a` to copy the snapshot directory contents across.
+4. Unmounting and cleaning up temporary NFS client groups and permissions.
+
+This approach works for both NFS and WEKAFS protocol shares but copy time
+scales with snapshot data size.  See
+[Known Issues](known-issues.md#2-create_share_from_snapshot-uses-nfs-based-data-copy).
