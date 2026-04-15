@@ -66,6 +66,7 @@ Critical implementation notes
 import ipaddress
 import os
 
+from oslo_concurrency import processutils
 from oslo_config import cfg
 from oslo_log import log as logging
 from oslo_utils import units
@@ -283,7 +284,11 @@ class WekaShareDriver(driver.ShareDriver):
 
     def create_share_from_snapshot(self, context, share, snapshot,
                                    share_server=None, parent_share=None):
-        """Create a new share as a writable clone of a snapshot.
+        """Create a new share populated with data from a snapshot.
+
+        Creates a new Weka filesystem, then mounts both the source snapshot
+        (via the WekaFS POSIX client using <fs>@<snap> notation) and the new
+        filesystem and copies all content between them.
 
         :param context: Request context.
         :param share: New share model dict.
@@ -293,18 +298,13 @@ class WekaShareDriver(driver.ShareDriver):
         """
         snap_name = self._snapshot_name(snapshot['id'])
 
-        # Find the source snapshot by name.  Snapshot names are UUID-based
-        # so they are unique across all filesystems; no fs_uid filter needed.
         snap = self._client.get_snapshot_by_name(snap_name)
         if not snap:
             raise exception.SnapshotNotFound(snapshot_id=snapshot['id'])
 
-        LOG.info(
-            "Creating share %s from snapshot %s (new empty filesystem; "
-            "Weka v2 API does not support cloning a read-only snapshot "
-            "into a new filesystem).",
-            share['id'], snapshot['id'],
-        )
+        # Resolve the source filesystem name from the snapshot's filesystemUid.
+        src_fs = self._client.get_filesystem(snap['filesystemUid'])
+        src_fs_name = src_fs['name']
 
         new_fs_name = self._share_name(share['id'])
         share_proto = share['share_proto'].upper()
@@ -312,13 +312,64 @@ class WekaShareDriver(driver.ShareDriver):
                       or 'default')
         size_bytes = weka_utils.gb_to_bytes(share['size'])
 
-        # Create a new filesystem for the share.
+        LOG.info(
+            "Creating share %s from snapshot %s (src fs: %s, snap: %s)",
+            share['id'], snapshot['id'], src_fs_name, snap_name,
+        )
+
         fs = self._create_filesystem_idempotent(
             new_fs_name, group_name, size_bytes)
-        fs_uid = fs['uid']
+
+        # Mount the source snapshot and the new filesystem, then copy.
+        # WekaFS POSIX snapshots are accessed via <fs_name>@<snap_name>.
+        backends = self._get_backends()
+        num_cores = self.configuration.safe_get('weka_num_cores') or 1
+        snap_fs_name = '{}@{}'.format(src_fs_name, snap_name)
+        snap_mount = self._mount_point(snap_fs_name)
+        new_mount = self._mount_point(new_fs_name)
+
+        src_mnt = weka_posix.WekaMount(
+            backends=backends,
+            fs_name=snap_fs_name,
+            mount_point=snap_mount,
+            num_cores=num_cores,
+        )
+        dst_mnt = weka_posix.WekaMount(
+            backends=backends,
+            fs_name=new_fs_name,
+            mount_point=new_mount,
+            num_cores=num_cores,
+        )
+
+        try:
+            src_mnt.mount()
+            dst_mnt.mount()
+            processutils.execute(
+                'cp', '-a',
+                snap_mount.rstrip('/') + '/.',
+                new_mount.rstrip('/') + '/',
+                run_as_root=True,
+            )
+            LOG.info(
+                "Copied snapshot %s content to new filesystem %s",
+                snap_name, new_fs_name,
+            )
+        except Exception as exc:
+            LOG.error(
+                "Failed to populate share %s from snapshot %s: %s",
+                share['id'], snapshot['id'], exc,
+            )
+            raise
+        finally:
+            for mnt in (src_mnt, dst_mnt):
+                try:
+                    mnt.unmount(force=True)
+                except Exception as exc:
+                    LOG.warning(
+                        "Unmount %s failed: %s", mnt.mount_point, exc)
 
         export_locations = self._build_export_locations(
-            share, new_fs_name, fs_uid, share_proto)
+            share, new_fs_name, fs['uid'], share_proto)
         return export_locations
 
     def delete_share(self, context, share, share_server=None):
