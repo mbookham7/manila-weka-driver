@@ -61,7 +61,9 @@ access protocols:
 
 ## Prerequisites
 
-- **Weka cluster version** ≥ 4.2 (tested against 5.1.x; v5.x uses snake_case API parameters — fully supported)
+- **Weka cluster version** ≥ 5.0 (tested against 5.1.x). v5.x uses snake_case
+  API parameters. v4.x used camelCase and has not been validated against this
+  driver — compatibility is not guaranteed.
 - **OpenStack Manila** ≥ 2023.1 (Antelope), tested against 2024.2 (Dalmatian)
 - **WekaFS client** installed and loaded on the Manila host (required for
   WEKAFS protocol shares only; not needed for NFS):

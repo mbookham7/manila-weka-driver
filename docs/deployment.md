@@ -15,7 +15,7 @@ No prior experience with Manila or Manila drivers is required.
 | Component | Minimum version | Where to check |
 |-----------|----------------|----------------|
 | OpenStack (controller up) | 2023.1 (Antelope) | `openstack token issue` |
-| Weka cluster | 4.2 | Weka GUI → About |
+| Weka cluster | 5.0 (tested against 5.1.x; v4.x not validated) | Weka GUI → About |
 | Manila host OS | RHEL 8+ / Ubuntu 20.04+ | `cat /etc/os-release` |
 | Python | 3.9+ | `python3 --version` |
 | MariaDB / MySQL | 10.4+ | `mysql --version` |
