@@ -80,6 +80,9 @@ class WekaFSSharesTest(base.BaseSharesMixedTest):
             share_protocol=self.protocol,
             share_type_id=self.share_type_id,
             cleanup_in_class=False)
+        # create_share returns the POST response (status='creating'); re-fetch
+        # to get the current status and export_locations after wait completes.
+        share = self.shares_v2_client.get_share(share['id'])['share']
         self.assertEqual('available', share['status'])
         self.assertEqual(self.protocol.upper(), share['share_proto'])
         self.assertIsNotNone(share.get('export_location') or
@@ -137,7 +140,8 @@ class WekaFSSharesTest(base.BaseSharesMixedTest):
             self.share['id'],
             name=data_utils.rand_name('wekafs-snap'),
             cleanup_in_class=False)
-        self.assertEqual('available', snapshot['status'])
+        # create_snapshot_wait_for_active returns the POST dict (status=
+        # 'creating'); the wait already confirmed 'available', skip re-assert.
         self.assertEqual(self.share['id'], snapshot['share_id'])
 
     @decorators.idempotent_id('c3e4f5a6-b7c8-4d9e-af10-b1c2d3e4f506')
@@ -178,7 +182,8 @@ class WekaFSSharesTest(base.BaseSharesMixedTest):
             share_type_id=self.share_type_id,
             snapshot_id=snapshot['id'],
             cleanup_in_class=False)
-        self.assertEqual('available', child['status'])
+        # create_share returns POST dict (status='creating'); wait already
+        # confirmed 'available'. Verify the snapshot linkage is correct.
         self.assertEqual(snapshot['id'], child['snapshot_id'])
 
     # ── Access rules ─────────────────────────────────────────────────────────
@@ -195,8 +200,7 @@ class WekaFSSharesTest(base.BaseSharesMixedTest):
             self.share['id'],
             access_type='ip',
             access_to='2.2.2.2',
-            access_level='rw',
-            cleanup_in_class=False)
+            access_level='rw')
         self.assertEqual('rw', rule['access_level'])
         self.shares_v2_client.delete_access_rule(
             self.share['id'], rule['id'])
@@ -211,8 +215,7 @@ class WekaFSSharesTest(base.BaseSharesMixedTest):
             self.share['id'],
             access_type='ip',
             access_to='3.3.3.3',
-            access_level='ro',
-            cleanup_in_class=False)
+            access_level='ro')
         self.assertEqual('ro', rule['access_level'])
         self.shares_v2_client.delete_access_rule(
             self.share['id'], rule['id'])
