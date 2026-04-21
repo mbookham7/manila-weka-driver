@@ -17,6 +17,7 @@
 import unittest
 from unittest import mock
 
+from oslo_concurrency import processutils
 from oslo_config import cfg
 
 from manila import exception
@@ -182,45 +183,270 @@ class TestWekaShareDriverCreateShare(unittest.TestCase):
         self.assertEqual(fakes.FAKE_FS_UID, meta.get('weka_fs_uid'))
 
 
-class TestWekaShareDriverCreateFromSnapshot(unittest.TestCase):
+_PATCH_EXECUTE = 'manila.share.drivers.weka.driver.processutils.execute'
+_PATCH_MAKEDIRS = 'manila.share.drivers.weka.driver.os.makedirs'
+_PATCH_RMDIR = 'manila.share.drivers.weka.driver.os.rmdir'
+_PATCH_SOCKET = 'manila.share.drivers.weka.driver.socket.socket'
+_PATCH_SLEEP = 'manila.share.drivers.weka.driver.time.sleep'
 
-    def _make_driver(self):
+
+class TestWekaShareDriverCreateFromSnapshot(unittest.TestCase):
+    """Unit tests for WekaShareDriver.create_share_from_snapshot.
+
+    The method creates a new filesystem then NFS-mounts both the source and
+    destination filesystems on the Manila host, rsyncs the snapshot contents,
+    and always cleans up NFS permissions, the client group, and temp mounts
+    in a finally block regardless of whether the operation succeeded or failed.
+
+    Test coverage:
+      - Pre-condition failures (snapshot not found, no NFS server)
+      - Full happy path for WEKAFS and NFS protocols
+      - Each mount/rsync failure scenario — verifying correct cleanup state
+      - Cleanup resilience (umount failure doesn't mask original exception;
+        permission delete failure doesn't prevent a successful return)
+    """
+
+    NFS_SERVER = 'nfs.example.com'
+    # tmp_cg_name = 'manila-snap-' + FAKE_NEW_SHARE_ID[:8]
+    TMP_CG_NAME = 'manila-snap-' + fakes.FAKE_NEW_SHARE_ID[:8]
+
+    def _make_driver(self, nfs_server=NFS_SERVER):
         drv = weka_driver.WekaShareDriver.__new__(weka_driver.WekaShareDriver)
-        drv.configuration = _make_config()
+        drv.configuration = _make_config(weka_nfs_server=nfs_server)
         drv._client = mock.Mock()
         drv._fs_group_uid = fakes.FAKE_GROUP_UID
         return drv
 
-    def test_create_share_from_snapshot(self):
-        drv = self._make_driver()
-        snap = fakes.fake_snapshot()
-        drv._client.get_filesystem_by_name.return_value = None
+    def _setup_happy_path_client(self, drv):
+        """Configure client mocks for a fully successful operation."""
+        snap = fakes.fake_snapshot()          # filesystemUid == FAKE_FS_UID
+        src_fs = fakes.fake_filesystem()      # looked up by snap['filesystemUid']
+        new_fs = fakes.fake_new_filesystem()  # created for the new share
+        cg = fakes.fake_client_group()
+        # Perms have the tmp CG name so the cleanup loop deletes them
+        perm_src = fakes.fake_nfs_permission(
+            uid='perm-src', fs_name=fakes.FAKE_FS_NAME,
+            cg_name=self.TMP_CG_NAME)
+        perm_dst = fakes.fake_nfs_permission(
+            uid='perm-dst', fs_name=fakes.FAKE_NEW_FS_NAME,
+            cg_name=self.TMP_CG_NAME)
+
         drv._client.get_snapshot_by_name.return_value = snap
-        drv._client.create_filesystem.return_value = fakes.fake_filesystem()
+        drv._client.get_filesystem.return_value = src_fs
+        drv._client.get_filesystem_by_name.return_value = None
+        drv._client.create_filesystem.return_value = new_fs
+        drv._client.create_client_group.return_value = cg
+        drv._client.add_client_group_rule.return_value = {
+            'uid': fakes.FAKE_CG_RULE_UID}
+        drv._client.list_nfs_permissions.return_value = [perm_src, perm_dst]
+        return snap, new_fs, cg
 
-        share = fakes.fake_share(proto='WEKAFS', size=10)
-        snap_model = fakes.fake_snapshot_model()
+    def _new_share(self, proto='WEKAFS'):
+        return fakes.fake_share(share_id=fakes.FAKE_NEW_SHARE_ID, proto=proto)
 
-        result = drv.create_share_from_snapshot(
-            context=None, share=share, snapshot=snap_model)
+    # ── Pre-condition failures ────────────────────────────────────────────
 
-        # Weka v2 API does not support cloning; creates a new empty filesystem.
-        drv._client.update_snapshot.assert_not_called()
-        drv._client.create_filesystem.assert_called_once()
-        self.assertEqual(1, len(result))
-
-    def test_create_share_from_snapshot_not_found(self):
+    def test_snapshot_not_found_raises(self):
         drv = self._make_driver()
         drv._client.get_snapshot_by_name.return_value = None
-
-        share = fakes.fake_share(proto='WEKAFS')
-        snap_model = fakes.fake_snapshot_model()
 
         self.assertRaises(
             exception.SnapshotNotFound,
             drv.create_share_from_snapshot,
-            None, share, snap_model,
-        )
+            None, self._new_share(), fakes.fake_snapshot_model())
+        drv._client.create_filesystem.assert_not_called()
+
+    def test_no_nfs_server_raises(self):
+        """ManilaException when weka_nfs_server is not configured."""
+        drv = self._make_driver(nfs_server=None)
+        drv._client.get_snapshot_by_name.return_value = fakes.fake_snapshot()
+        drv._client.get_filesystem.return_value = fakes.fake_filesystem()
+        drv._client.get_filesystem_by_name.return_value = None
+        drv._client.create_filesystem.return_value = fakes.fake_filesystem()
+
+        self.assertRaises(
+            exception.ManilaException,
+            drv.create_share_from_snapshot,
+            None, self._new_share(), fakes.fake_snapshot_model())
+
+    # ── Happy path ───────────────────────────────────────────────────────
+
+    @mock.patch(_PATCH_SLEEP)
+    @mock.patch(_PATCH_SOCKET)
+    @mock.patch(_PATCH_RMDIR)
+    @mock.patch(_PATCH_MAKEDIRS)
+    @mock.patch(_PATCH_EXECUTE)
+    def test_happy_path_wekafs(
+            self, mock_exec, mock_makedirs, mock_rmdir,
+            mock_socket, mock_sleep):
+        """Full happy path: filesystem created, data copied, cleanup run."""
+        drv = self._make_driver()
+        self._setup_happy_path_client(drv)
+        mock_socket.return_value.getsockname.return_value = ('10.0.0.1', 0)
+
+        result = drv.create_share_from_snapshot(
+            None, self._new_share(), fakes.fake_snapshot_model())
+
+        drv._client.create_filesystem.assert_called_once()
+        drv._client.create_client_group.assert_called_once()
+        drv._client.add_client_group_rule.assert_called_once()
+        self.assertEqual(2, drv._client.create_nfs_permission.call_count)
+        exec_cmds = [c[0][0] for c in mock_exec.call_args_list]
+        self.assertEqual(2, exec_cmds.count('mount'))
+        self.assertIn('rsync', exec_cmds)
+        self.assertEqual(2, exec_cmds.count('umount'))
+        drv._client.delete_nfs_permission.assert_called()
+        drv._client.delete_client_group.assert_called_once_with(fakes.FAKE_CG_UID)
+        self.assertEqual(1, len(result))
+
+    @mock.patch(_PATCH_SLEEP)
+    @mock.patch(_PATCH_SOCKET)
+    @mock.patch(_PATCH_RMDIR)
+    @mock.patch(_PATCH_MAKEDIRS)
+    @mock.patch(_PATCH_EXECUTE)
+    def test_happy_path_nfs_protocol(
+            self, mock_exec, mock_makedirs, mock_rmdir,
+            mock_socket, mock_sleep):
+        """NFS-protocol shares use the same data copy path."""
+        drv = self._make_driver()
+        self._setup_happy_path_client(drv)
+        mock_socket.return_value.getsockname.return_value = ('10.0.0.1', 0)
+
+        result = drv.create_share_from_snapshot(
+            None, self._new_share(proto='NFS'), fakes.fake_snapshot_model())
+
+        self.assertEqual(1, len(result))
+        self.assertIn(':/', result[0]['path'])
+
+    # ── Failure paths — verify cleanup runs ──────────────────────────────
+
+    @mock.patch(_PATCH_SLEEP)
+    @mock.patch(_PATCH_SOCKET)
+    @mock.patch(_PATCH_RMDIR)
+    @mock.patch(_PATCH_MAKEDIRS)
+    @mock.patch(_PATCH_EXECUTE)
+    def test_src_mount_fails_reraises_and_cleans_up(
+            self, mock_exec, mock_makedirs, mock_rmdir,
+            mock_socket, mock_sleep):
+        """Src mount failure: exception re-raised; no umounts (nothing was
+        mounted); NFS permissions and client group still deleted."""
+        drv = self._make_driver()
+        self._setup_happy_path_client(drv)
+        mock_socket.return_value.getsockname.return_value = ('10.0.0.1', 0)
+        mock_exec.side_effect = processutils.ProcessExecutionError(
+            'mount src failed')
+
+        self.assertRaises(
+            processutils.ProcessExecutionError,
+            drv.create_share_from_snapshot,
+            None, self._new_share(), fakes.fake_snapshot_model())
+
+        exec_cmds = [c[0][0] for c in mock_exec.call_args_list]
+        self.assertNotIn('umount', exec_cmds)
+        drv._client.delete_nfs_permission.assert_called()
+        drv._client.delete_client_group.assert_called_once()
+
+    @mock.patch(_PATCH_SLEEP)
+    @mock.patch(_PATCH_SOCKET)
+    @mock.patch(_PATCH_RMDIR)
+    @mock.patch(_PATCH_MAKEDIRS)
+    @mock.patch(_PATCH_EXECUTE)
+    def test_dst_mount_fails_reraises_and_cleans_up(
+            self, mock_exec, mock_makedirs, mock_rmdir,
+            mock_socket, mock_sleep):
+        """Dst mount failure: src is unmounted, perms and CG deleted."""
+        drv = self._make_driver()
+        self._setup_happy_path_client(drv)
+        mock_socket.return_value.getsockname.return_value = ('10.0.0.1', 0)
+        # src mount succeeds, dst mount fails
+        mock_exec.side_effect = [
+            None,
+            processutils.ProcessExecutionError('mount dst failed'),
+        ]
+
+        self.assertRaises(
+            processutils.ProcessExecutionError,
+            drv.create_share_from_snapshot,
+            None, self._new_share(), fakes.fake_snapshot_model())
+
+        exec_cmds = [c[0][0] for c in mock_exec.call_args_list]
+        self.assertEqual(1, exec_cmds.count('umount'))  # only src unmounted
+        drv._client.delete_nfs_permission.assert_called()
+        drv._client.delete_client_group.assert_called_once()
+
+    @mock.patch(_PATCH_SLEEP)
+    @mock.patch(_PATCH_SOCKET)
+    @mock.patch(_PATCH_RMDIR)
+    @mock.patch(_PATCH_MAKEDIRS)
+    @mock.patch(_PATCH_EXECUTE)
+    def test_rsync_fails_reraises_and_cleans_up(
+            self, mock_exec, mock_makedirs, mock_rmdir,
+            mock_socket, mock_sleep):
+        """Rsync failure: both mounts unmounted, perms and CG deleted."""
+        drv = self._make_driver()
+        self._setup_happy_path_client(drv)
+        mock_socket.return_value.getsockname.return_value = ('10.0.0.1', 0)
+        # src mount OK, dst mount OK, rsync fails
+        mock_exec.side_effect = [
+            None, None,
+            processutils.ProcessExecutionError('rsync failed'),
+        ]
+
+        self.assertRaises(
+            processutils.ProcessExecutionError,
+            drv.create_share_from_snapshot,
+            None, self._new_share(), fakes.fake_snapshot_model())
+
+        exec_cmds = [c[0][0] for c in mock_exec.call_args_list]
+        self.assertEqual(2, exec_cmds.count('umount'))
+        drv._client.delete_nfs_permission.assert_called()
+        drv._client.delete_client_group.assert_called_once()
+
+    # ── Cleanup resilience ───────────────────────────────────────────────
+
+    @mock.patch(_PATCH_SLEEP)
+    @mock.patch(_PATCH_SOCKET)
+    @mock.patch(_PATCH_RMDIR)
+    @mock.patch(_PATCH_MAKEDIRS)
+    @mock.patch(_PATCH_EXECUTE)
+    def test_umount_failure_does_not_mask_rsync_exception(
+            self, mock_exec, mock_makedirs, mock_rmdir,
+            mock_socket, mock_sleep):
+        """A umount error in the finally block must not hide the original
+        exception — the rsync error is what the caller should see."""
+        drv = self._make_driver()
+        self._setup_happy_path_client(drv)
+        mock_socket.return_value.getsockname.return_value = ('10.0.0.1', 0)
+        rsync_err = processutils.ProcessExecutionError('rsync failed')
+        umount_err = processutils.ProcessExecutionError('umount failed')
+        mock_exec.side_effect = [None, None, rsync_err, umount_err, umount_err]
+
+        with self.assertRaises(processutils.ProcessExecutionError) as cm:
+            drv.create_share_from_snapshot(
+                None, self._new_share(), fakes.fake_snapshot_model())
+
+        self.assertIs(rsync_err, cm.exception)
+
+    @mock.patch(_PATCH_SLEEP)
+    @mock.patch(_PATCH_SOCKET)
+    @mock.patch(_PATCH_RMDIR)
+    @mock.patch(_PATCH_MAKEDIRS)
+    @mock.patch(_PATCH_EXECUTE)
+    def test_permission_delete_failure_does_not_raise_on_success(
+            self, mock_exec, mock_makedirs, mock_rmdir,
+            mock_socket, mock_sleep):
+        """A permission cleanup failure must not propagate when the copy
+        itself succeeded — export locations are still returned."""
+        drv = self._make_driver()
+        self._setup_happy_path_client(drv)
+        mock_socket.return_value.getsockname.return_value = ('10.0.0.1', 0)
+        drv._client.delete_nfs_permission.side_effect = Exception(
+            'API error during cleanup')
+
+        result = drv.create_share_from_snapshot(
+            None, self._new_share(), fakes.fake_snapshot_model())
+
+        self.assertEqual(1, len(result))
 
 
 class TestWekaShareDriverDeleteShare(unittest.TestCase):
@@ -394,7 +620,7 @@ class TestWekaShareDriverSnapshots(unittest.TestCase):
             share_access_rules=[], snapshot_access_rules=[])
 
         drv._client.restore_snapshot.assert_called_once_with(
-            fakes.FAKE_SNAP_UID)
+            fakes.FAKE_SNAP_UID, fakes.FAKE_FS_UID)
 
     def test_revert_to_snapshot_raises_when_not_found(self):
         drv = self._make_driver()
@@ -481,17 +707,34 @@ class TestWekaShareDriverUpdateAccess(unittest.TestCase):
         self.assertIn(rule_id, result)
         self.assertEqual('error', result[rule_id]['state'])
 
-    def test_update_access_wekafs_unsupported_type_sets_error(self):
+    def test_update_access_wekafs_ip_rule_sets_error(self):
+        """WEKAFS shares reject all access rules — ip type returns error."""
         drv = self._make_driver()
         share = fakes.fake_share(proto='WEKAFS')
-        rule = fakes.fake_access_rule(access_type='cert',
-                                      access_to='my-cert')
+        rule = fakes.fake_access_rule(access_type='ip',
+                                      access_to='10.0.0.1')
         result = drv.update_access(
             context=None, share=share,
             access_rules=[], add_rules=[rule], delete_rules=[],
             update_rules=[],
         )
-        self.assertIn(rule['access_id'], result)
+        self.assertEqual('error', result[rule['access_id']]['state'])
+        # No cluster API calls should be made
+        drv._client.create_client_group.assert_not_called()
+        drv._client.create_nfs_permission.assert_not_called()
+
+    def test_update_access_wekafs_user_rule_sets_error(self):
+        """WEKAFS shares reject all access rules — user type returns error."""
+        drv = self._make_driver()
+        share = fakes.fake_share(proto='WEKAFS')
+        rule = fakes.fake_access_rule(access_type='user',
+                                      access_to='bob')
+        result = drv.update_access(
+            context=None, share=share,
+            access_rules=[], add_rules=[rule], delete_rules=[],
+            update_rules=[],
+        )
+        self.assertEqual('error', result[rule['access_id']]['state'])
 
 
 class TestWekaShareDriverStats(unittest.TestCase):

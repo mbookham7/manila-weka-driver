@@ -659,19 +659,26 @@ class WekaShareDriver(driver.ShareDriver):
     def _update_wekafs_access(self, share, add_rules, delete_rules):
         """Handle WekaFS access rules.
 
-        For WEKAFS protocol, access is primarily managed at the filesystem
-        auth_required level and via mount tokens.  IP-based rules are
-        recorded but enforcement is at the network level.  User rules
-        map to Weka user accounts.
+        Access control for the WekaFS (POSIX client) protocol is managed
+        entirely within the Weka cluster via filesystem-level authentication
+        and mount tokens.  The Manila access-rules API has no mapping onto
+        those mechanisms in the current driver implementation.
+
+        All rules are therefore rejected with an 'error' state so that
+        operators receive an explicit failure rather than a silent no-op
+        that appears to succeed but has no effect.
+
+        See docs/known-issues.md for details and future work.
         """
         rule_state_map = {}
         for rule in add_rules or []:
-            if rule['access_type'] not in ('ip', 'user'):
-                LOG.warning(
-                    "Unsupported WekaFS access type '%s' for rule %s",
-                    rule['access_type'], rule['access_id'],
-                )
-                rule_state_map[rule['access_id']] = {'state': 'error'}
+            LOG.warning(
+                "WekaFS shares do not support Manila access rules "
+                "(type=%s, rule=%s). Access control for WEKAFS shares is "
+                "managed via Weka filesystem authentication and mount tokens.",
+                rule['access_type'], rule['access_id'],
+            )
+            rule_state_map[rule['access_id']] = {'state': 'error'}
         return rule_state_map
 
     def _remove_nfs_rule(self, fs_name, rule):
@@ -767,7 +774,7 @@ class WekaShareDriver(driver.ShareDriver):
             "Reverting share %s to snapshot %s",
             share['id'], snapshot['id'],
         )
-        self._client.restore_snapshot(snap['uid'])
+        self._client.restore_snapshot(snap['uid'], fs_uid)
 
     # ------------------------------------------------------------------
     # Statistics

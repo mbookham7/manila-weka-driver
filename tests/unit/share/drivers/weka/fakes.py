@@ -77,7 +77,13 @@ def fake_snapshot(uid=FAKE_SNAP_UID, name=FAKE_SNAP_NAME,
         'filesystemUid': fs_uid,
         'isWritable': is_writable,
         'creationTime': '2024-01-01T00:00:00Z',
+        'accessPoint': '@GMT-2024.01.01-00.00.00',
     }
+
+
+def fake_new_filesystem():
+    """Destination filesystem for create_share_from_snapshot tests."""
+    return fake_filesystem(uid=FAKE_NEW_FS_UID, name=FAKE_NEW_FS_NAME)
 
 
 def fake_organization(uid=FAKE_ORG_UID, name='TestOrg',
@@ -139,6 +145,15 @@ def fake_quota(inode_id=12345, hard_limit=10 * 1024 ** 3,
 
 FAKE_SHARE_ID = 'share-uuid-1234'
 FAKE_SNAPSHOT_ID = 'snapshot-uuid-0001'
+
+# Used in create_share_from_snapshot tests — the *new* share being created
+# (distinct from the snapshot's parent share so names don't collide).
+# FAKE_NEW_FS_NAME must match _share_name('new-share-uuid-9999'):
+#   prefix 'manila_' + 'new-share-uuid-9999'.replace('-','') → 'manila_newshareuuid9999'
+FAKE_NEW_SHARE_ID = 'new-share-uuid-9999'
+FAKE_NEW_FS_UID = 'new-fs-uid-9999'
+FAKE_NEW_FS_NAME = 'manila_newshareuuid9999'
+FAKE_CG_RULE_UID = 'rule-uid-cccc'
 
 
 def fake_share(share_id=FAKE_SHARE_ID, size=10, proto='WEKAFS',

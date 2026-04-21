@@ -215,9 +215,15 @@ weka_max_api_retries   = 3
 
 | Access Type | WEKAFS | NFS |
 |-------------|:------:|:---:|
-| `ip` | Recorded (network-level) | ✓ Full enforcement |
-| `user` | Recorded (Weka user) | ✗ |
+| `ip` | ✗ Rejected (`error` state) | ✓ Full enforcement |
+| `user` | ✗ Rejected (`error` state) | ✗ |
 | `cert` | ✗ | ✗ |
+
+> **WEKAFS access rules:** All Manila access rule operations on WEKAFS shares
+> return `error` state. Access control is managed via Weka's own authentication
+> layer (filesystem `auth_required` flag and mount tokens). Use network-level
+> controls (VPC security groups, firewall rules) for WEKAFS share security.
+> See [Known Issues §6](docs/known-issues.md#6-wekafs-shares-do-not-support-manila-access-rules).
 
 ## Multi-tenancy
 

@@ -85,8 +85,10 @@ class WekaFSSharesTest(base.BaseSharesMixedTest):
         share = self.shares_v2_client.get_share(share['id'])['share']
         self.assertEqual('available', share['status'])
         self.assertEqual(self.protocol.upper(), share['share_proto'])
-        self.assertIsNotNone(share.get('export_location') or
-                             share.get('export_locations'))
+        # Export locations are not in the share detail body — fetch separately.
+        export_locs = self.shares_v2_client.list_share_export_locations(
+            share['id'])['export_locations']
+        self.assertNotEmpty(export_locs)
 
     @decorators.idempotent_id('c3e4f5a6-b7c8-4d9e-af10-b1c2d3e4f502')
     @tc.attr(base.TAG_POSITIVE, base.TAG_BACKEND)
@@ -150,12 +152,6 @@ class WekaFSSharesTest(base.BaseSharesMixedTest):
         """Revert a WEKAFS share to a snapshot (in-place restore)."""
         if not CONF.share.run_snapshot_tests:
             raise self.skipException("Snapshot tests are disabled")
-        # TODO(weka): POST /snapshots/{uid}/restore was removed in Weka v5.
-        # The driver's restore_snapshot() needs updating to the v5 API path
-        # before this test can pass.  Skip until the fix is in place.
-        raise self.skipException(
-            "revert_to_snapshot driver API not yet updated for Weka v5"
-        )
         # Use a dedicated share so revert does not affect class-level share
         share = self.create_share(
             share_protocol=self.protocol,
@@ -195,37 +191,42 @@ class WekaFSSharesTest(base.BaseSharesMixedTest):
     # ── Access rules ─────────────────────────────────────────────────────────
 
     @decorators.idempotent_id('c3e4f5a6-b7c8-4d9e-af10-b1c2d3e4f508')
-    @tc.attr(base.TAG_POSITIVE, base.TAG_BACKEND)
-    def test_add_remove_ip_access_rule(self):
-        """Add and remove an IP access rule on a WEKAFS share.
+    @tc.attr(base.TAG_NEGATIVE, base.TAG_BACKEND)
+    def test_ip_access_rule_rejected_on_wekafs_share(self):
+        """Access rules on WEKAFS shares are explicitly rejected.
 
-        WEKAFS access rules are recorded by the driver; enforcement is
-        at the Weka authentication layer rather than via NFS exports.
+        The WekaFS POSIX client protocol uses Weka's own authentication
+        layer (filesystem auth_required + mount tokens) for access control.
+        Manila access rules have no mapping onto those mechanisms, so the
+        driver returns 'error' state for any rule applied to a WEKAFS share.
+
+        See docs/known-issues.md — 'WEKAFS Shares Do Not Support Manila
+        Access Rules' for full details and future work.
         """
-        rule = self.allow_access(
+        rule = self.shares_v2_client.create_access_rule(
             self.share['id'],
             access_type='ip',
             access_to='2.2.2.2',
             access_level='rw',
-            cleanup=False)
-        self.assertEqual('rw', rule['access_level'])
+        )['access']
+        rule_id = rule['id']
+        # The driver rejects WEKAFS rules synchronously. Poll until the
+        # rule leaves 'queued_to_apply' / 'applying' and reaches a terminal
+        # state, then assert it landed on 'error'.
+        import time
+        rule_state = rule['state']
+        for _ in range(10):
+            if rule_state not in ('queued_to_apply', 'applying'):
+                break
+            time.sleep(1)
+            rules = self.shares_v2_client.list_access_rules(
+                self.share['id'])['access_list']
+            rule_state = next(
+                r['state'] for r in rules if r['id'] == rule_id)
+        self.assertEqual('error', rule_state,
+                         "WEKAFS access rules should be rejected by driver")
+        # Clean up the errored rule.
         self.shares_v2_client.delete_access_rule(
-            self.share['id'], rule['id'])
-        waiters.wait_for_resource_status(
-            self.shares_v2_client, self.share['id'], 'available')
-
-    @decorators.idempotent_id('c3e4f5a6-b7c8-4d9e-af10-b1c2d3e4f509')
-    @tc.attr(base.TAG_POSITIVE, base.TAG_BACKEND)
-    def test_add_ro_access_rule(self):
-        """Add a read-only IP access rule on a WEKAFS share."""
-        rule = self.allow_access(
-            self.share['id'],
-            access_type='ip',
-            access_to='3.3.3.3',
-            access_level='ro',
-            cleanup=False)
-        self.assertEqual('ro', rule['access_level'])
-        self.shares_v2_client.delete_access_rule(
-            self.share['id'], rule['id'])
+            self.share['id'], rule_id)
         waiters.wait_for_resource_status(
             self.shares_v2_client, self.share['id'], 'available')

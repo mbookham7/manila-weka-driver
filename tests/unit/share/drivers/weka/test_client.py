@@ -323,9 +323,14 @@ class TestWekaApiClientSnapshots(unittest.TestCase):
     def test_restore_snapshot(self):
         resp = _make_response(200, {'data': {'status': 'ok'}})
         with mock.patch.object(self.client._session, 'request',
-                               return_value=resp):
-            result = self.client.restore_snapshot(fakes.FAKE_SNAP_UID)
+                               return_value=resp) as mock_req:
+            result = self.client.restore_snapshot(
+                fakes.FAKE_SNAP_UID, fakes.FAKE_FS_UID)
         self.assertIsNotNone(result)
+        # Verify the v5 endpoint includes both fs_uid and snap_uid in the path
+        url = mock_req.call_args[1].get('url') or mock_req.call_args[0][1]
+        self.assertIn(fakes.FAKE_FS_UID, url)
+        self.assertIn(fakes.FAKE_SNAP_UID, url)
 
     def test_list_snapshots_returns_all(self):
         snaps = [fakes.fake_snapshot(), fakes.fake_snapshot(uid='snap-2')]

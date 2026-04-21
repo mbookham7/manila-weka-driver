@@ -166,16 +166,43 @@ for full installation instructions.
 
 ---
 
-## 6. No Unit Test Coverage for `create_share_from_snapshot`
+## 6. WEKAFS Shares Do Not Support Manila Access Rules
 
-**Affects:** Development and CI only; no runtime impact.
+**Affects:** WEKAFS protocol shares only. NFS protocol is unaffected.
 
 **Description:**
-The NFS-based `create_share_from_snapshot` implementation does not have unit
-test coverage. It is covered by the Manila Tempest scenario test suite
-(`TestShareBasicOpsNFS.test_write_data_to_share_created_from_snapshot`)
-but not by isolated unit tests.
+The Manila access-rules API (`share access create`) has no direct mapping
+onto the WekaFS (POSIX client) security model. For the WekaFS protocol,
+access control is managed entirely within the Weka cluster via:
+
+- **Filesystem-level authentication** (`auth_required` flag) — forces
+  clients to present a valid Weka mount token before mounting.
+- **Mount tokens** — scoped credentials issued per-user or per-client
+  by the Weka cluster.
+- **Weka user accounts** — the cluster enforces per-user filesystem
+  permissions at the protocol level.
+
+These mechanisms have no equivalent in the Manila access-rules model
+(IP rules, user rules, etc.) and the driver does not currently implement
+a translation layer between them.
 
 **Impact:**
-Regressions in this code path may not be caught by `tox -e py311` alone.
-The full Tempest scenario suite must be run to validate this operation.
+Any attempt to add or delete an access rule on a WEKAFS share will return
+an `error` state for the rule with a warning logged. The share itself
+remains available — only the rule operation is rejected. Example:
+
+```
+$ openstack share access create my-wekafs-share ip 10.0.0.5
+# Rule will show status 'error'
+```
+
+**Workaround:**
+Control access to WEKAFS shares at the network layer (VPC security groups,
+firewall rules) and via Weka cluster user management. Do not rely on Manila
+access rules for WEKAFS share security.
+
+**Future work:**
+A future implementation could map Manila IP rules to Weka NFS-style client
+groups on the WekaFS mount path, or map user rules to Weka user account
+permissions. This requires a deeper integration with Weka's authentication
+API and is tracked as a future enhancement.

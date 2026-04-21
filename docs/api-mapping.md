@@ -37,7 +37,7 @@ Manila driver operation.
 | `delete_snapshot` | `/snapshots` | GET | Name lookup |
 | `delete_snapshot` | `/snapshots/{uid}` | DELETE | |
 | `revert_to_snapshot` | `/snapshots` | GET | Name lookup |
-| `revert_to_snapshot` | `/snapshots/{uid}/restore` | POST | In-place restore |
+| `revert_to_snapshot` | `/snapshots/{fs_uid}/{uid}/restore` | POST | In-place restore (Weka 5.x) |
 
 ## Access Control
 
@@ -48,6 +48,7 @@ Manila driver operation.
 | `update_access` (NFS add) | `/nfsPermissions` | POST | RW or RO |
 | `update_access` (NFS del) | `/nfsPermissions` | GET | Find by FS+rule ID |
 | `update_access` (NFS del) | `/nfsPermissions/{uid}` | DELETE | |
+| `update_access` (WEKAFS) | *(no Weka API calls)* | — | All rules rejected with `error` state; see [known-issues.md §6](known-issues.md#6-wekafs-shares-do-not-support-manila-access-rules) |
 
 ## Driver Setup
 
@@ -126,7 +127,7 @@ with (D) are driver-critical; (S) are stubs included for SDK completeness.
 ### Snapshots
 - GET/POST `/snapshots` (D)
 - GET/PUT/DELETE `/snapshots/{uid}` (D)
-- POST `/snapshots/{uid}/restore` (D)
+- POST `/snapshots/{fs_uid}/{uid}/restore` (D) — Weka 5.x
 
 ### Cluster
 - GET `/status` (D)

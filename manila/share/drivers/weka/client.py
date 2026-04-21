@@ -914,17 +914,15 @@ class WekaApiClient(object):
         """
         return self._delete('/snapshots/{uid}'.format(uid=snap_uid))
 
-    def restore_snapshot(self, snap_uid):
+    def restore_snapshot(self, snap_uid, fs_uid):
         """Restore (revert) a filesystem to a snapshot.
 
-        NOTE: POST /snapshots/{uid}/restore was present in Weka 4.x but the
-        route no longer exists in Weka 5.x.  This method will raise
-        WekaNotFound on Weka 5+ clusters until the correct v5 endpoint is
-        identified and this implementation is updated.
-
-        POST /snapshots/{uid}/restore  (Weka 4.x only)
+        Weka v5 changed the endpoint to include the filesystem UID as well:
+        POST /snapshots/{fs_uid}/{uid}/restore  (Weka 5.x)
         """
-        result = self._post('/snapshots/{uid}/restore'.format(uid=snap_uid))
+        result = self._post(
+            '/snapshots/{fs_uid}/{uid}/restore'.format(
+                fs_uid=fs_uid, uid=snap_uid))
         return result.get('data', result)
 
     # ------------------------------------------------------------------
