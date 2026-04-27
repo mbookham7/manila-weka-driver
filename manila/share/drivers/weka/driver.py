@@ -859,12 +859,16 @@ class WekaShareDriver(driver.ShareDriver):
 
         size_bytes = fs.get('total_budget', fs.get('totalCapacity', 0)) or 0
         size_gb = max(1, int(weka_utils.bytes_to_gb(size_bytes)))
+        fs_uid = fs.get('uid') or fs.get('id', '')
 
         LOG.info(
             "Managing existing share %s (FS '%s', size %s GiB)",
             share['id'], fs_name, size_gb,
         )
-        return {'size': size_gb}
+        share_proto = share.get('share_proto', _WEKAFS_PROTO).upper()
+        export_locations = self._build_export_locations(
+            share, fs_name, fs_uid, share_proto)
+        return {'size': size_gb, 'export_locations': export_locations}
 
     def unmanage(self, share):
         """Remove share from Manila management without deleting the filesystem.
