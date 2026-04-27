@@ -953,11 +953,32 @@ class WekaShareDriver(driver.ShareDriver):
             except (AttributeError, TypeError):
                 pass
 
+        # Try the standard manila-generated filesystem name.
         fs_name = self._share_name(share['id'])
         fs = self._client.get_filesystem_by_name(fs_name)
-        if not fs:
-            raise exception.ShareNotFound(share_id=share['id'])
-        return fs['uid']
+        if fs:
+            return fs['uid']
+
+        # For managed shares the filesystem keeps its original name, which is
+        # the last path component of the export location path.
+        for loc in share.get('export_locations', []) or []:
+            path = ''
+            try:
+                path = loc.get('path', '') if isinstance(loc, dict) else str(
+                    getattr(loc, 'path', ''))
+            except (AttributeError, TypeError):
+                pass
+            if path:
+                candidate = path.rsplit('/', 1)[-1] if '/' in path else path
+                # Strip NFS server prefix (server:/fs_name → fs_name)
+                if ':' in candidate:
+                    candidate = candidate.split(':', 1)[-1].lstrip('/')
+                if candidate:
+                    fs = self._client.get_filesystem_by_name(candidate)
+                    if fs:
+                        return fs['uid']
+
+        raise exception.ShareNotFound(share_id=share['id'])
 
     def _ensure_filesystem_group(self, group_name):
         """Ensure the default filesystem group exists; create if not."""
