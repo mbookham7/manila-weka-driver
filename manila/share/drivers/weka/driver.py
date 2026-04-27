@@ -835,18 +835,21 @@ class WekaShareDriver(driver.ShareDriver):
         :returns: Dict with 'size' key (GiB) for Manila to record.
         :raises ManageInvalidShare: if the filesystem cannot be found.
         """
-        fs_name = self._share_name_from_share(share)
-        if not fs_name:
-            # Try to extract from export location.
-            for loc in share.get('export_locations', []):
-                path = loc.get('path', '')
-                if '/' in path:
-                    fs_name = path.rsplit('/', 1)[-1]
-                    break
+        # Derive the filesystem name from the export path supplied to
+        # 'manila manage'. For WEKAFS the path is '<backend>/<fs_name>'
+        # or just '<fs_name>'; for NFS it is '<server>:/<fs_name>'.
+        fs_name = None
+        for loc in share.get('export_locations', []):
+            path = loc.get('path', '')
+            if path:
+                fs_name = path.rsplit('/', 1)[-1] if '/' in path else path
+                break
 
         if not fs_name:
             raise exception.ManageInvalidShare(
-                reason=_('Cannot determine filesystem name from share'))
+                reason=_('Cannot determine filesystem name from share export '
+                         'location. Pass the filesystem name as the export '
+                         'path to manila manage.'))
 
         fs = self._client.get_filesystem_by_name(fs_name)
         if not fs:
